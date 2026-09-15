@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>简历闪填</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <header>
+    <h1>简历闪填</h1>
+    <span class="tag">本地档案 · 零上传</span>
+  </header>
+
+  <section id="overview">
+    <div class="sec-title">当前档案 <span id="profile-state" class="state"></span></div>
+    <div id="overview-body" class="overview-body">尚未导入档案</div>
+  </section>
+
+  <section>
+    <div class="sec-title">填充操作</div>
+    <button id="btn-scan" class="primary">扫描并预览当前页</button>
+    <div id="scan-status" class="status"></div>
+    <p class="note">预览面板会在页面上展示匹配结果(敏感信息脱敏),确认后点击"开始填充"。工具只填充、<b>不会自动提交</b>。</p>
+  </section>
+
+  <section>
+    <div class="sec-title">档案管理</div>
+    <div class="row">
+      <button id="btn-load-example">载入示例档案</button>
+      <button id="btn-import">导入 JSON…</button>
+      <button id="btn-export">导出(脱敏)</button>
+    </div>
+    <label class="chk"><input type="checkbox" id="export-raw" />导出包含敏感原文(仅本人使用)</label>
+    <textarea id="profile-json" spellcheck="false" placeholder='在此粘贴或编辑档案 JSON,点击"保存档案"。结构见 data/profile.example.json'></textarea>
+    <div class="row">
+      <button id="btn-save" class="primary">保存档案</button>
+      <button id="btn-format">格式化</button>
+    </div>
+    <div id="edit-status" class="status"></div>
+  </section>
+
+  <section>
+    <div class="sec-title">AI 设置(可选:识别规则外的字段)</div>
+    <div class="row">
+      <select id="ai-provider" aria-label="AI 服务商">
+        <option value="glm">智谱 GLM</option>
+        <option value="deepseek">DeepSeek</option>
+        <option value="custom">自定义 OpenAI 兼容接口</option>
+      </select>
+    </div>
+    <label class="chk"><input type="checkbox" id="ai-share-profile" />允许 AI 读取教育、实习、项目等简历内容（用于智能匹配）</label>
+    <label class="chk"><input type="checkbox" id="ai-share-sensitive" />同时发送手机号、邮箱、身份证等敏感字段</label>
+    <div class="row"><input type="text" id="ai-endpoint" placeholder="API 地址,默认智谱 GLM" /></div>
+    <div class="row"><input type="text" id="ai-model" placeholder="模型,默认 glm-4-flash" /></div>
+    <div class="row"><input type="password" id="ai-key" placeholder="API Key(仅存本机)" /></div>
+    <div class="row"><button id="btn-ai-save" class="primary">保存 AI 设置</button><button id="btn-ai-clear">清除</button></div>
+    <div id="ai-status" class="status"></div>
+    <p class="note">开启简历内容选项后才可使用「AI 理解经历表」;默认不发送联系方式和身份证。普通「AI 识别」只上传字段结构。确认过的映射会记入站点记忆,同站二次免 AI。</p>
+  </section>
+
+  <input type="file" id="file-import" accept=".json,application/json" hidden />
+  <script src="../shared/mask.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

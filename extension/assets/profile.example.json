@@ -1,0 +1,113 @@
+{
+  "_comment": "示例档案:全部为虚构数据,仅用于演示与测试。真实使用时请载入后编辑为自己的信息,保存于本机 chrome.storage.local,不会上传。",
+  "personal": {
+    "name": "李明远",
+    "gender": "男",
+    "birthDate": "2003-06-15",
+    "phone": "13812345678",
+    "email": "limingyuan@example.com",
+    "idCard": "110101200306151234",
+    "politicalStatus": "共青团员",
+    "ethnicity": "汉族",
+    "origin": "北京市",
+    "hukou": "北京市",
+    "address": "北京市海淀区",
+    "englishLevel": "CET-6",
+    "gpa": "3.6/4.0",
+    "expectedSalary": "面议",
+    "desiredCities": ["北京", "上海", "杭州"],
+    "website": "https://limingyuan.example.com",
+    "github": "https://github.com/limingyuan-example",
+    "emergencyContact": "李建国",
+    "emergencyContactPhone": "13998765432"
+  },
+  "education": [
+    {
+      "school": "华中科技大学",
+      "college": "计算机学院",
+      "major": "计算机科学与技术",
+      "degree": "本科",
+      "fullTime": "全日制",
+      "startDate": "2021-09",
+      "endDate": "2025-06"
+    },
+    {
+      "school": "北京市第一中学",
+      "college": "高中部",
+      "major": "理科",
+      "degree": "高中",
+      "fullTime": "全日制",
+      "startDate": "2018-09",
+      "endDate": "2021-06"
+    }
+  ],
+  "employment": [],
+  "internships": [
+    {
+      "company": "云帆科技有限公司",
+      "role": "后端开发实习生",
+      "department": "交易中台",
+      "startDate": "2024-03",
+      "endDate": "2024-09",
+      "description": "参与订单服务重构,负责库存扣减模块的性能优化,将高峰期接口 P99 延迟从 480ms 降至 120ms;编写单元测试覆盖核心链路,覆盖率提升至 85%。"
+    },
+    {
+      "company": "星河数据集团",
+      "role": "数据分析实习生",
+      "department": "增长分析组",
+      "startDate": "2023-06",
+      "endDate": "2023-09",
+      "description": "搭建用户留存看板,基于 SQL 与 Python 完成漏斗转化分析,输出的两项策略建议被增长团队采纳,次日留存提升约 2.3 个百分点。"
+    }
+  ],
+  "projects": [
+    {
+      "name": "校园二手交易平台",
+      "role": "负责人",
+      "startDate": "2023-10",
+      "endDate": "2024-04",
+      "techStack": "Spring Boot / MySQL / Redis / Vue",
+      "description": "面向在校学生的二手交易与闲置租赁平台,支持基于标签与协同过滤的推荐;上线三个月注册用户 4200+,峰值日订单 300+,获校级创新创业大赛二等奖。"
+    },
+    {
+      "name": "开源项目 QueryLens",
+      "role": "核心贡献者",
+      "startDate": "2024-05",
+      "endDate": "至今",
+      "techStack": "Go / ClickHouse",
+      "description": "分布式查询日志分析工具,贡献查询计划可视化模块与 30+ 单元测试,GitHub 获 800+ Star。"
+    }
+  ],
+  "skills": ["Java", "Go", "SQL", "Spring Boot", "Redis", "Docker"],
+  "awards": [
+    {
+      "name": "国家励志奖学金",
+      "date": "2023-09",
+      "level": "国家级",
+      "description": "国家励志奖学金,用于表彰品学兼优、家庭经济困难的学生。"
+    },
+    {
+      "name": "校级优秀学生干部",
+      "date": "2022-12",
+      "level": "校级",
+      "description": "担任学生组织负责人期间表现优秀,获评校级优秀学生干部。"
+    }
+  ],
+  "qa": {
+    "是否服从工作地点调剂": "服从调剂",
+    "是否愿意接受出差": "愿意",
+    "本人或亲属是否在公司任职": "否",
+    "是否有过违纪违法记录": "无",
+    "本人身体健康，无职业相关禁忌症": "是",
+    "是否有亲友在公司工作": "否",
+    "是否有亲友在竞业限制企业或上下游关联企业工作": "否",
+    "是否有犯罪记录": "否",
+    "预计毕业时间": "2025-06",
+    "可实习时长": "6个月",
+ "一周可到岗天数": "5天"
+  },
+  "mappings": {},
+  "summary": {
+    "selfIntroduction": "华中科技大学计算机专业 2025 届本科生,两段后端/数据方向实习经历,熟悉 Java 技术栈与高并发场景优化,具备从 0 到 1 搭建并运营线上项目的完整经验,学习能力强,抗压性好。"
+  }
+}

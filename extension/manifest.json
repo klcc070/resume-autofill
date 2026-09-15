@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "校招简历闪填 ResumeAutofill",
+  "version": "0.1.0",
+  "description": "隐私优先的校招网申表单自动填写:本地档案匹配字段、预览确认后填充、敏感信息脱敏显示、绝不自动提交。",
+  "permissions": ["activeTab", "scripting", "storage"],
+  "optional_host_permissions": ["https://*/*", "http://*/*"],
+  "action": {
+    "default_title": "简历闪填",
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "assets/icon16.png",
+      "48": "assets/icon48.png",
+      "128": "assets/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "assets/icon16.png",
+    "48": "assets/icon48.png",
+    "128": "assets/icon128.png"
+  },
+  "background": {
+    "service_worker": "background/service-worker.js"
+  },
+  "commands": {
+    "scan-preview": {
+      "suggested_key": { "default": "Ctrl+Shift+F", "mac": "Command+Shift+F" },
+      "description": "扫描当前页并打开预览面板"
+    }
+  }
+}

@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="UTF-8" /><title>自定义组件测试页</title>
+<style>
+  body { font: 14px/1.6 "Microsoft YaHei", sans-serif; padding: 30px; }
+  .field { margin: 18px 0; }
+  .ud-formily-item-label { font-weight: 600; margin-bottom: 4px; }
+  .ud__select__selector { width: 260px; padding: 8px 12px; border: 1px solid #ccc; border-radius: 6px; cursor: pointer; background: #fff; }
+  .ud__select__dropdown { position: absolute; background: #fff; border: 1px solid #ddd; border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,.15); z-index: 99; min-width: 260px; }
+  .ud__select__option { padding: 8px 12px; cursor: pointer; }
+  .ud__select__option:hover { background: #f0f5ff; }
+  .throne-biz-date-range-picker { display: flex; gap: 8px; }
+  .throne-biz-date-range-picker input { padding: 6px 10px; border: 1px solid #ccc; border-radius: 6px; width: 110px; background: #fff; cursor: pointer; }
+  .throne-biz-date-range-picker-wrapper { position: relative; }
+  .throne-biz-date-range-picker-calendar { position: absolute; top: 40px; left: 0; background: #fff; border: 1px solid #ddd; border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,.18); padding: 10px; z-index: 99; width: 280px; }
+  .cal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-weight: 600; }
+  .cal-header button { border: none; background: #f0f2f5; border-radius: 4px; padding: 2px 10px; cursor: pointer; }
+  .cal-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  .cal-cell { text-align: center; padding: 8px 0; border-radius: 4px; cursor: pointer; background: #f7f8fa; }
+  .cal-cell:hover { background: #e6efff; }
+</style>
+</head>
+<body>
+<h2>自定义组件测试页(仿 ud__ 结构)</h2>
+
+<div class="field ud-formily-item" data-form-field-id="degree" data-form-field-name="degree" data-form-field-i18n-name="学历">
+  <div class="ud-formily-item-label"><label>学历</label></div>
+  <div class="ud__select__selector" id="degree-select" role="combobox"><span class="ud__select__placeholder">请选择学历</span></div>
+</div>
+
+<div class="field ud-formily-item" data-form-field-id="target_salary" data-form-field-name="target_salary" data-form-field-i18n-name="目标年薪">
+  <div class="ud-formily-item-label"><label>目标年薪</label></div>
+  <input type="text" id="target-salary" />
+</div>
+
+<div class="field ud-formily-item" data-form-field-id="start_end_time" data-form-field-name="start_end_time" data-form-field-i18n-name="起止时间">
+  <div class="ud-formily-item-label"><label>起止时间</label></div>
+  <div class="throne-biz-date-range-picker-wrapper">
+    <div class="throne-biz-date-range-picker">
+      <input class="throne-biz-date-range-picker-input picker-input" placeholder="YYYY-MM" readonly />
+      <input class="throne-biz-date-range-picker-input picker-input" placeholder="YYYY-MM" readonly />
+    </div>
+  </div>
+</div>
+
+<div id="out"></div>
+<script>
+  // —— 模拟自定义下拉:点击触发器后 portal 渲染选项到 body ——
+  const sel = document.getElementById('degree-select');
+  let selVal = '';
+  sel.addEventListener('mousedown', () => {
+    if (document.querySelector('.ud__select__dropdown')) return;
+    const dd = document.createElement('div');
+    dd.className = 'ud__select__dropdown';
+    ['高中', '大专', '本科', '硕士', '博士'].forEach((o) => {
+      const d = document.createElement('div');
+      d.className = 'ud__select__option';
+      d.textContent = o;
+      d.addEventListener('mousedown', (e) => {
+        e.stopPropagation();
+        selVal = o;
+        sel.querySelector('.ud__select__placeholder').textContent = o;
+        dd.remove();
+      });
+      dd.appendChild(d);
+    });
+    document.body.appendChild(dd);
+  });
+
+  // —— 模拟月份范围选择器:两个输入 + portal 日历(月选模式) ——
+  const pickerInputs = document.querySelectorAll('.picker-input');
+  const vals = [null, null];
+  let cur = { y: 2026, m: 9 };
+  function openCal(anchor) {
+    let cal = document.querySelector('.throne-biz-date-range-picker-calendar');
+    if (cal) { cal.remove(); return; }
+    cal = document.createElement('div');
+    cal.className = 'throne-biz-date-range-picker-calendar';
+    cal.innerHTML = '<div class="cal-header"><button class="prev">‹</button><span class="cal-title"></span><button class="next">›</button></div><div class="cal-grid"></div>';
+    document.body.appendChild(cal);
+    const pickAnchor = () => { cal.style.left = anchor.getBoundingClientRect().left + 'px'; cal.style.top = anchor.getBoundingClientRect().bottom + 6 + 'px'; };
+    const render = () => {
+      cal.querySelector('.cal-title').textContent = cur.y + '年' + cur.m + '月';
+      const grid = cal.querySelector('.cal-grid');
+      grid.innerHTML = '';
+      for (let m = 1; m <= 12; m++) {
+        const c = document.createElement('div');
+        c.className = 'cal-cell';
+        c.textContent = m + '月';
+        c.addEventListener('click', () => {
+          const slot = vals[0] === null ? 0 : 1;
+          vals[slot] = cur.y + '-' + String(m).padStart(2, '0');
+          pickerInputs[slot].value = vals[slot];
+          if (vals[0] !== null && vals[1] !== null) cal.remove();
+        });
+        grid.appendChild(c);
+      }
+      pickAnchor();
+    };
+    cal.querySelector('.prev').addEventListener('click', () => { cur.m--; if (cur.m < 1) { cur.m = 12; cur.y--; } render(); });
+    cal.querySelector('.next').addEventListener('click', () => { cur.m++; if (cur.m > 12) { cur.m = 1; cur.y++; } render(); });
+    pickerInputs.forEach((inp) => inp.addEventListener('click', () => { cur = { y: 2026, m: 9 }; render(); }));
+    render();
+  }
+  document.querySelector('.throne-biz-date-range-picker').addEventListener('mousedown', () => openCal(pickerInputs[0]));
+
+  window.getComponentState = () => ({ selVal, vals });
+</script>
+</body>
+</html>

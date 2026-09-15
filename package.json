@@ -1,0 +1,30 @@
+{
+  "name": "resume-autofill",
+  "version": "0.1.0",
+  "private": true,
+  "description": "隐私优先的校招网申简历自动填写 Chrome 扩展",
+  "type": "module",
+  "scripts": {
+    "test:unit": "node --test \"test/unit/*.test.mjs\"",
+    "serve": "node test/serve.mjs",
+    "test:e2e": "node test/e2e/run.mjs",
+    "test:qunar": "node test/e2e/qunar-static.mjs",
+    "test:atsx": "node test/e2e/atsx-components.mjs",
+    "test:mihoyo": "node test/e2e/mihoyo-static.mjs",
+    "test:hengsheng": "node test/e2e/hengsheng-static.mjs",
+    "test:award": "node test/e2e/award-static.mjs",
+    "test:xinqi": "node test/e2e/xinqi-static.mjs && node test/e2e/phoenix-components.mjs",
+    "test:weichai": "node test/e2e/weichai-static.mjs",
+    "test:beike": "node test/e2e/beike-static.mjs",
+    "test:nio": "node test/e2e/nio-static.mjs",
+    "test:nine": "node test/e2e/jiuh-static.mjs",
+    "test:sohu": "node test/e2e/sohu-static.mjs && node test/e2e/moka-components.mjs",
+    "test": "npm run test:unit && npm run test:e2e && npm run test:qunar && npm run test:atsx && npm run test:mihoyo && npm run test:hengsheng && npm run test:sohu && npm run test:award && npm run test:xinqi && npm run test:weichai && npm run test:beike && npm run test:nio && npm run test:nine"
+  },
+  "devDependencies": {
+    "playwright": "^1.49.0"
+  },
+  "dependencies": {
+    "nodemailer": "^10.0.1"
+  }
+}

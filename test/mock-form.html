@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>星辰集团 2026 届秋季校园招聘 - 网申系统(本地模拟)</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.7 "Microsoft YaHei", system-ui, sans-serif; background: #f5f7fa; color: #1f2329; }
+  .topbar { background: #12284b; color: #fff; padding: 14px 32px; display: flex; justify-content: space-between; align-items: center; }
+  .topbar .logo { font-size: 18px; font-weight: 700; letter-spacing: 1px; }
+  .topbar .steps span { opacity: .55; margin-left: 18px; font-size: 13px; }
+  .topbar .steps .on { opacity: 1; border-bottom: 2px solid #4c8bf5; padding-bottom: 2px; }
+  main { max-width: 920px; margin: 24px auto 60px; background: #fff; border-radius: 10px; box-shadow: 0 2px 12px rgba(0,0,0,.06); padding: 28px 36px; }
+  h2.section-title { font-size: 16px; border-left: 4px solid #165dff; padding-left: 10px; margin: 34px 0 6px; }
+  h2.section-title:first-of-type { margin-top: 0; }
+  .hint { color: #86909c; font-size: 12px; margin: 0 0 12px 14px; }
+  .form-group { margin: 14px 0; }
+  .field-label { display: inline-block; width: 150px; text-align: right; margin-right: 14px; color: #4e5969; vertical-align: middle; }
+  .req { color: #f53f3f; margin-right: 2px; }
+  .form-group input[type=text], .form-group input[type=tel], .form-group input[type=email],
+  .form-group input[type=number], .form-group input[type=date], .form-group select {
+    width: 300px; padding: 7px 10px; border: 1px solid #dcdfe6; border-radius: 6px; font-size: 13px; vertical-align: middle;
+  }
+  .form-group textarea { width: 560px; min-height: 64px; padding: 8px 10px; border: 1px solid #dcdfe6; border-radius: 6px; font-size: 13px; vertical-align: middle; }
+  .opt { margin: 0 18px 0 0; color: #1f2329; }
+  table.grid { width: 100%; border-collapse: collapse; margin-top: 8px; }
+  table.grid th, table.grid td { border: 1px solid #e5e6eb; padding: 6px 8px; text-align: center; font-weight: 400; font-size: 13px; }
+  table.grid th { background: #f7f8fa; color: #4e5969; }
+  table.grid input[type=text], table.grid input[type=month], table.grid select { width: 100%; padding: 5px 6px; border: 1px solid #dcdfe6; border-radius: 4px; font-size: 12px; }
+  .btn-add { margin-top: 10px; border: 1px dashed #165dff; color: #165dff; background: #f0f5ff; border-radius: 6px; padding: 6px 14px; cursor: pointer; font-size: 13px; }
+  .btn-add:hover { background: #e6efff; }
+  .actions { text-align: center; margin-top: 36px; }
+  .btn-submit { background: #165dff; color: #fff; border: none; border-radius: 24px; padding: 11px 56px; font-size: 15px; cursor: pointer; }
+  .btn-submit:hover { background: #4080ff; }
+  .banner { display: none; margin-top: 18px; padding: 12px 16px; border-radius: 8px; background: #e8ffea; color: #00b42a; text-align: center; }
+  .banner.show { display: block; }
+  footer { text-align: center; color: #c9cdd4; font-size: 12px; padding: 20px; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="logo">星辰集团 · 校园招聘</div>
+  <div class="steps"><span class="on">① 填写简历</span><span>② 意向岗位</span><span>③ 完成投递</span></div>
+</div>
+
+<main>
+  <form id="apply-form" novalidate>
+    <h2 class="section-title">基本信息</h2>
+    <p class="hint">带 <span class="req">*</span> 为必填项</p>
+    <div class="form-group">
+      <label class="field-label" for="name"><span class="req">*</span>姓名</label>
+      <input type="text" id="name" name="name" />
+    </div>
+    <div class="form-group">
+      <span class="field-label"><span class="req">*</span>性别</span>
+      <label class="opt"><input type="radio" name="gender" value="男" />男</label>
+      <label class="opt"><input type="radio" name="gender" value="女" />女</label>
+    </div>
+    <div class="form-group">
+      <label class="field-label" for="birth"><span class="req">*</span>出生日期</label>
+      <input type="date" id="birth" name="birth" />
+    </div>
+    <div class="form-group">
+      <label class="field-label" for="age"><span class="req">*</span>年龄</label>
+      <input type="number" id="age" name="age" min="16" max="60" />
+    </div>
+    <div class="form-group">
+      <label class="field-label" for="phone"><span class="req">*</span>手机号码</label>
+      <input type="tel" id="phone" name="phone" maxlength="11" />
+    </div>
+    <div class="form-group">
+      <label class="field-label" for="email"><span class="req">*</span>电子邮箱</label>
+      <input type="email" id="email" name="email" />
+    </div>
+    <div class="form-group">
+      <label class="field-label" for="idcard"><span class="req">*</span>身份证号码</label>
+      <input type="text" id="idcard" name="idcard" maxlength="18" />
+    </div>
+    <div class="form-group">
+      <label class="field-label" for="political"><span class="req">*</span>政治面貌</label>
+      <select id="political" name="political">
+        <option value="">请选择</option><option>中共党员</option><option>中共预备党员</option>
+        <option>共青团员</option><option>群众</option><option>其他</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="field-label" for="ethnicity">民族</label>
+      <select id="ethnicity" name="ethnicity">
+        <option value="">请选择</option><option>汉族</option><option>回族</option><option>满族</option><option>壮族</option><option>其他</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="field-label" for="origin">籍贯</label>
+      <input type="text" id="origin" name="origin" placeholder="如:北京市" />
+    </div>
+    <div class="form-group">
+      <label class="field-label" for="address">现居住地</label>
+      <input type="text" id="address" name="address" />
+    </div>
+    <div class="form-group">
+      <label class="field-label" for="english">英语等级</label>
+      <select id="english" name="english">
+        <option value="">请选择</option><option>CET-4</option><option>CET-6</option><option>TOEFL</option><option>IELTS</option><option>其他</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="field-label" for="gpa">绩点(GPA)</label>
+      <input type="text" id="gpa" name="gpa" placeholder="如:3.6/4.0" />
+    </div>
+
+    <h2 class="section-title">教育经历</h2>
+    <p class="hint">从高中/本科开始填写</p>
+    <table class="grid" id="edu-table">
+      <thead><tr><th style="width:13%">开始时间</th><th style="width:13%">结束时间</th><th>学校</th><th>学院</th><th>专业</th><th style="width:18%">全日制</th><th style="width:11%">学历</th><th style="width:8%">操作</th></tr></thead>
+      <tbody id="edu-rows"></tbody>
+    </table>
+    <button type="button" class="btn-add" id="add-edu" data-kind="edu">+ 添加教育经历</button>
+
+    <h2 class="section-title">实习经历</h2>
+    <table class="grid" id="intern-table">
+      <thead><tr><th style="width:15%">开始时间</th><th style="width:15%">结束时间</th><th>公司</th><th>职位</th><th style="width:8%">操作</th></tr></thead>
+      <tbody id="intern-rows"></tbody>
+    </table>
+    <button type="button" class="btn-add" id="add-intern" data-kind="intern">+ 添加实习经历</button>
+    <div class="form-group" style="margin-top:10px">
+      <span class="field-label">工作内容描述</span>
+      <textarea id="intern-desc" name="intern-desc" placeholder="最近一段实习的工作内容"></textarea>
+    </div>
+
+    <h2 class="section-title">项目经历</h2>
+    <table class="grid" id="proj-table">
+      <thead><tr><th style="width:15%">开始时间</th><th style="width:15%">结束时间</th><th>项目名称</th><th>担任角色</th><th style="width:8%">操作</th></tr></thead>
+      <tbody id="proj-rows"></tbody>
+    </table>
+    <button type="button" class="btn-add" id="add-proj" data-kind="proj">+ 添加项目经历</button>
+    <div class="form-group" style="margin-top:10px">
+      <span class="field-label">项目描述</span>
+      <textarea id="proj-desc" name="proj-desc" placeholder="最近一个项目的描述"></textarea>
+    </div>
+
+    <h2 class="section-title">求职意向</h2>
+    <div class="form-group">
+      <span class="field-label">意向工作城市(可多选)</span>
+      <label class="opt"><input type="checkbox" name="city" value="北京" />北京</label>
+      <label class="opt"><input type="checkbox" name="city" value="上海" />上海</label>
+      <label class="opt"><input type="checkbox" name="city" value="广州" />广州</label>
+      <label class="opt"><input type="checkbox" name="city" value="杭州" />杭州</label>
+      <label class="opt"><input type="checkbox" name="city" value="成都" />成都</label>
+    </div>
+    <div class="form-group">
+      <label class="field-label" for="salary">期望薪资</label>
+      <input type="text" id="salary" name="salary" value="15000-20000元/月" />
+    </div>
+    <div class="form-group">
+      <label class="field-label" for="referral">招聘信息来源</label>
+      <input type="text" id="referral" name="referral" placeholder="如:内推 / 官网 / 宣讲会" />
+    </div>
+
+    <h2 class="section-title">筛选问题</h2>
+    <div class="form-group question">
+      <span class="field-label">是否服从全国范围的工作地点调剂?</span>
+      <label class="opt"><input type="radio" name="q_adjust" value="服从调剂" />服从调剂</label>
+      <label class="opt"><input type="radio" name="q_adjust" value="不服从调剂" />不服从调剂</label>
+    </div>
+    <div class="form-group question">
+      <span class="field-label">你的本人或亲属是否在本公司任职?</span>
+      <label class="opt"><input type="radio" name="q_relative" value="是" />是</label>
+      <label class="opt"><input type="radio" name="q_relative" value="否" />否</label>
+    </div>
+
+    <div class="actions">
+      <button type="submit" class="btn-submit" id="btn-submit">提交申请</button>
+      <div class="banner" id="banner">投递成功!请前往邮箱查收确认函。</div>
+    </div>
+  </form>
+</main>
+<footer>星辰集团招聘系统(本地模拟环境,用于自动化测试)</footer>
+
+<script>
+  // —— 动态行:模板 + 添加/删除 ——
+  const ROW_TMPL = {
+    edu: (index) => `<td><input type="month" name="edu_start" /></td>
+      <td><input type="month" name="edu_end" /></td>
+      <td><input type="text" name="edu_school" /></td>
+      <td><input type="text" name="edu_college" /></td>
+      <td><input type="text" name="edu_major" /></td>
+      <td><div id="educations_${index}_type" class="radio-group"><label class="opt"><input type="radio" name="edu_fulltime_${index}" value="全日制" />全日制</label><label class="opt"><input type="radio" name="edu_fulltime_${index}" value="非全日制" />非全日制</label></div></td>
+      <td><select name="edu_degree"><option value="">请选择</option><option>高中</option><option>大专</option><option>本科</option><option>硕士</option><option>博士</option></select></td>
+      <td><button type="button" class="del" onclick="this.closest('tr').remove()">删除</button></td>`,
+    intern: () => `<td><input type="text" name="intern_start" placeholder="2024-03" /></td>
+      <td><input type="text" name="intern_end" placeholder="2024-09" /></td>
+      <td><input type="text" name="intern_company" /></td>
+      <td><input type="text" name="intern_role" /></td>
+      <td><button type="button" class="del" onclick="this.closest('tr').remove()">删除</button></td>`,
+    proj: () => `<td><input type="text" name="proj_start" placeholder="2023-10" /></td>
+      <td><input type="text" name="proj_end" placeholder="2024-04" /></td>
+      <td><input type="text" name="proj_name" /></td>
+      <td><input type="text" name="proj_role" /></td>
+      <td><button type="button" class="del" onclick="this.closest('tr').remove()">删除</button></td>`,
+  };
+  const TBODY = { edu: 'edu-rows', intern: 'intern-rows', proj: 'proj-rows' };
+  window.__addedRows = { edu: 0, intern: 0, proj: 0 };
+  function addRow(kind) {
+    const tbody = document.getElementById(TBODY[kind]);
+    const tr = document.createElement('tr');
+    const rowNo = window.__addedRows[kind];
+    tr.innerHTML = ROW_TMPL[kind](rowNo);
+    tbody.appendChild(tr);
+    window.__addedRows[kind] += 1;
+  }
+  document.getElementById('add-edu').addEventListener('click', () => addRow('edu'));
+  document.getElementById('add-intern').addEventListener('click', () => addRow('intern'));
+  document.getElementById('add-proj').addEventListener('click', () => addRow('proj'));
+  addRow('edu'); addRow('intern'); addRow('proj'); // 每类预置一行
+
+  // —— 提交拦截:记录提交事件供测试断言,不跳转 ——
+  window.__submitted = false;
+  document.getElementById('apply-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    window.__submitted = true;
+    const data = {};
+    new FormData(e.target).forEach((v, k) => { (data[k] = data[k] || []).push(v); });
+    window.__submittedData = data;
+    document.getElementById('banner').classList.add('show');
+  });
+</script>
+</body>
+</html>

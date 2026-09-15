@@ -1,0 +1,23 @@
+body { width: 340px; margin: 0; font: 13px/1.55 "Microsoft YaHei", system-ui, sans-serif; color: #1f2329; background: #fff; }
+header { display: flex; align-items: baseline; justify-content: space-between; padding: 12px 14px 8px; }
+h1 { font-size: 15px; margin: 0; }
+.tag { font-size: 11px; color: #00b42a; background: #e8ffea; border-radius: 8px; padding: 1px 8px; }
+section { padding: 4px 14px 10px; border-top: 1px solid #f0f1f3; }
+.sec-title { font-weight: 600; color: #4e5969; font-size: 12px; margin: 8px 0 6px; }
+.state { font-weight: 400; margin-left: 6px; }
+.state.ok { color: #00b42a; } .state.miss { color: #ff7d00; }
+.overview-body { color: #4e5969; white-space: pre-line; }
+button { border: 1px solid #e5e6eb; background: #f7f8fa; color: #1f2329; border-radius: 6px; padding: 6px 10px; cursor: pointer; font-size: 12px; }
+button:hover { background: #f2f3f5; }
+button.primary { background: #165dff; border-color: #165dff; color: #fff; padding: 7px 0; width: 100%; font-size: 13px; }
+button.primary:hover { background: #4080ff; }
+.row { display: flex; gap: 8px; margin: 6px 0; }
+.row button { flex: 1; }
+.row input, .row select { box-sizing: border-box; flex: 1; min-width: 0; border: 1px solid #e5e6eb; border-radius: 6px; padding: 7px 8px; background: #fff; color: #1f2329; font-size: 12px; }
+.row input:focus, .row select:focus { outline: none; border-color: #165dff; }
+.status { font-size: 12px; color: #86909c; margin-top: 6px; min-height: 16px; white-space: pre-line; }
+.status.err { color: #f53f3f; }
+.note { font-size: 11px; color: #86909c; margin: 8px 0 0; }
+.chk { display: flex; align-items: center; gap: 6px; font-size: 11px; color: #86909c; margin: 4px 0; }
+textarea { width: 100%; height: 120px; margin-top: 6px; padding: 8px; border: 1px solid #e5e6eb; border-radius: 6px; font: 11px/1.5 Consolas, monospace; resize: vertical; }
+textarea:focus { outline: none; border-color: #165dff; }
