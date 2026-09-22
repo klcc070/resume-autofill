@@ -106,7 +106,8 @@
     return Array.from(
       panel.querySelectorAll(
         '[class*="option"], [role="option"], li, ' +
-        '[class~="ud__list__item"], [class~="ud__select__list__item"], [class*="list__item"]'
+        '[class~="ud__list__item"], [class~="ud__select__list__item"], [class*="list__item"], ' +
+        '[class*="sd-Select-common-item"], [class*="Menu-content-item"], [class*="select-item"], [class*="menu-item"]'
       )
     ).filter(visible);
   }
@@ -248,6 +249,24 @@
         clicked += 1;
         clickedTexts.push(optionText(hit).slice(0, 20));
         await sleep(150);
+      }
+    }
+    if (clicked === 0) {
+      // 兜底:面板变量可能抓错节点,对页面上所有可见下拉 portal 重试叶子点选
+      const portals = Array.from(
+        document.querySelectorAll('[class*="Dropdown-dropdown"], [class*="select__dropdown"], [class*="dropdown"], [role="listbox"]')
+      ).filter(visible);
+      for (const portal of portals) {
+        for (const w of wants) {
+          if (clickedTexts.some((t) => getMatcher().optionScore(t, w) > 0)) break;
+          const hit = findLeafOption(portal, w);
+          if (hit) {
+            realClick(hit);
+            clicked += 1;
+            clickedTexts.push(optionText(hit).slice(0, 20));
+            await sleep(150);
+          }
+        }
       }
     }
     if (clicked === 0) {
