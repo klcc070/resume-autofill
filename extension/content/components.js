@@ -50,8 +50,8 @@
         ? freshPanels.find((p) => panelOptions(p).some((option) => wanted.some((want) => getMatcher().optionScore(optionText(option), want) > 0)))
         : null;
       if (matching) return matching;
-      // 搜索型下拉可能先只挂载空面板,此时仍返回新面板,让调用方进行搜索。
-      if (freshPanels.length && !wanted.length) return freshPanels[0];
+      // 搜索型下拉可能先只挂载空面板(输入后才过滤出选项),此时仍返回新面板,让调用方进行搜索。
+      if (freshPanels.length) return freshPanels[0];
       await sleep(80);
     }
     // 超时后只允许回退到“新出现”的面板,绝不把调用前已存在的性别/学历面板当成当前面板。
@@ -161,17 +161,30 @@
   }
 
   function findSearchInput(trigger, panel) {
+    const sel = 'input[type="search"], input[role="combobox"]';
     const nodes = [
-      ...(trigger ? trigger.querySelectorAll('input[type="search"], input[role="combobox"]') : []),
-      ...(panel ? panel.querySelectorAll('input[type="search"], input[role="combobox"]') : []),
+      ...(trigger ? trigger.querySelectorAll(sel) : []),
+      ...(panel ? panel.querySelectorAll(sel) : []),
     ];
-    return nodes.find(visible) || null;
+    const direct = nodes.find(visible);
+    if (direct) return direct;
+    // Moka 可搜索下拉:触发器自身的可见文本输入(非 readonly、无已选值)即搜索框
+    const inner = trigger && trigger.querySelector ? trigger.querySelector('input[type="text"], input:not([type])') : null;
+    if (inner && visible(inner) && !inner.readOnly && !String(inner.value || '').trim()) return inner;
+    return null;
   }
 
   function findOption(options, want) {
+    // 目标是纯数字(年份/月份):降序列表里包含匹配必然误选(2021→2121/2126),只认数值相等
+    const wantNum = /^\d{1,4}$/.test(String(want).trim()) ? String(Number(want)) : null;
     let best = null;
     for (const opt of options) {
-      const s = getMatcher().optionScore(optionText(opt), want);
+      const text = optionText(opt).trim();
+      if (wantNum != null) {
+        if (/^\d{1,4}$/.test(text) && Number(text) === Number(want)) return { opt, score: 1000 };
+        continue;
+      }
+      const s = getMatcher().optionScore(text, want);
       if (s > 0 && (!best || s > best.score)) best = { opt, score: s };
     }
     return best;
@@ -211,6 +224,8 @@
     const before = snapshotPanels();
     const trigger = findTrigger(triggerEl);
     const wants = Array.isArray(want) ? want.map(String) : [String(want)];
+    // Moka 等组件需先获得焦点再点按才会弹出面板
+    try { if (trigger && trigger.focus) trigger.focus(); } catch {}
     realClick(trigger);
     let panel = await waitForPanel(before, 2500, wants);
     if (!panel) {
