@@ -433,7 +433,17 @@
   async function fillAtsxPeriodPicker(trigger, values) {
     const current = atsxCurrentValues(trigger);
     if (current.length >= values.length && current.slice(0, values.length).every(Boolean)) {
-      return { status: 'kept', value: current.slice(0, values.length).join(' ~ ') };
+      // 站点常从附件简历预填起止时间,其解析可能出错(如把 2026-01 解析成 2025-12)。
+      // 防覆盖原则下保留现值,但与档案不一致时必须显式报告,而不是静默 kept。
+      const want = values.map((v) => {
+        const m = String(v).match(/^(\d{4})[-/.年](\d{1,2})/);
+        return m ? `${m[1]}-${String(Number(m[2])).padStart(2, '0')}` : String(v);
+      });
+      const got = current.slice(0, values.length);
+      const same = got.every((c, i) => c === want[i]);
+      return same
+        ? { status: 'kept', value: got.join(' ~ ') }
+        : { status: 'kept-mismatch', value: got.join(' ~ '), reason: `当前值与档案不一致(档案为 ${want.join(' ~ ')}),已保留现值,请人工核对` };
     }
     const clickTargets = Array.from(trigger.querySelectorAll('[class~="atsx-date-picker-period-month-label"]')).filter(visible);
     const results = [];

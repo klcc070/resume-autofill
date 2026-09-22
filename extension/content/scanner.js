@@ -63,7 +63,9 @@
   function semanticIdentity(el) {
     const values = [];
     for (let node = el; node && node !== document.body; node = node.parentElement) {
-      for (const attr of ['id', 'name', 'data-field-name', 'data-form-field-name', 'data-form-field-id']) {
+      // data-cy:沐瞳等 ATSX 表单给每个控件标注 education[1].periodInputBegin 式语义 id,
+      // 比区块推断的下标更可靠(站点卡片顺序可能与档案顺序不同)。
+      for (const attr of ['data-cy', 'id', 'name', 'data-field-name', 'data-form-field-name', 'data-form-field-id']) {
         const value = node.getAttribute && node.getAttribute(attr);
         if (value) values.push(value);
       }
@@ -676,10 +678,26 @@
       return Array.from(new Set(roots));
     }
 
+    /** 框架语义叶名 → 档案叶名(沐瞳 data-cy: periodInputBegin/periodInputEnd 等)。 */
+    const PICKER_LEAF_ALIASES = {
+      periodinputbegin: 'startDate', periodinputend: 'endDate',
+      startdate: 'startDate', enddate: 'endDate',
+      begindate: 'startDate', finishdate: 'endDate',
+      begintime: 'startDate', endtime: 'endDate',
+      from: 'startDate', to: 'endDate',
+    };
+    /** 表示"起止范围"整体的叶名:一个控件承载 start+end 两个值。 */
+    const PICKER_RANGE_LEAVES = /^(?:periodinput|period|periodrange|timerange|daterange)$/;
+
     function explicitPickerPaths(group, wrapper) {
       const identity = pickerIdentity(group[0].el, wrapper);
       if (!identity) return null;
-      const dateLeaves = identity.leaves.filter((leaf) => /^(startDate|endDate|birthDate|date|beginDate|finishDate)$/i.test(leaf));
+      // pickerIdentity 保留原始大小写(periodInputBegin),别名表统一按小写键查找
+      const leaves = identity.leaves.map((leaf) => PICKER_LEAF_ALIASES[leaf.toLowerCase()] || leaf);
+      if (leaves.some((leaf) => PICKER_RANGE_LEAVES.test(leaf.toLowerCase()))) {
+        return [`${identity.array}[${identity.index}].startDate`, `${identity.array}[${identity.index}].endDate`];
+      }
+      const dateLeaves = leaves.filter((leaf) => /^(startDate|endDate|birthDate|date|beginDate|finishDate)$/i.test(leaf));
       if (group.length > 1 && dateLeaves.length >= group.length) {
         return group.map((_, i) => `${identity.array}[${identity.index}].${dateLeaves[i]}`);
       }

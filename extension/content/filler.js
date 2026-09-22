@@ -95,6 +95,55 @@
     return /^\d{4}[-/.年]\d{1,2}[-/.月]\d{1,2}日?$/.test(String(value == null ? '' : value).trim());
   }
 
+  /**
+   * 按卡片锚点(学校/公司/项目名)对齐经历下标。
+   * 站点卡片顺序可能与档案顺序不同(如站点按时间正序本科在前,档案硕士在前),
+   * 直接按下标填充会把两段经历的时间互换。若卡片锚点控件已有值(站点预填),
+   * 用它找到档案中真正对应的条目,改写路径下标;无法唯一匹配时保持原样。
+   */
+  function alignedPath(path, el, profile) {
+    if (!path) return path;
+    const m = String(path).match(/^(education|internships|employment|projects|awards)\[(\d+)\]\.(.+)$/);
+    if (!m) return path;
+    const [, array, idxStr, leaf] = m;
+    const list = profile[array];
+    if (!Array.isArray(list) || list.length < 2) return path;
+    const anchorLeaf = { education: 'school', internships: 'company', employment: 'company', projects: 'name', awards: 'name' }[array];
+    if (!anchorLeaf) return path;
+    let anchorText = '';
+    const holder = el && el.closest ? el.closest('[data-cy]') : null;
+    const holderCy = holder && holder.getAttribute('data-cy');
+    const idm = holderCy && holderCy.match(new RegExp(`^${array}\\[(\\d+)\\]`));
+    if (idm) {
+      const cardIdx = Number(idm[1]);
+      const q = document.querySelector(
+        `[data-cy="${array}[${cardIdx}].${anchorLeaf}"], [data-cy="${array}[${cardIdx}].${anchorLeaf}Input"]`
+      );
+      if (q) {
+        const input = q.matches('input, textarea') ? q : q.querySelector('input, textarea');
+        anchorText = (input && input.value) || q.textContent || '';
+      }
+    }
+    anchorText = String(anchorText || '').trim();
+    if (anchorText.length < 3) return path;
+    const norm = Matcher.normalize(anchorText);
+    const hits = [];
+    list.forEach((entry, j) => {
+      const target = entry == null ? '' : typeof entry === 'string' ? entry : entry[anchorLeaf] != null ? String(entry[anchorLeaf]) : '';
+      const tn = Matcher.normalize(target);
+      if (tn.length >= 2 && (norm.includes(tn) || tn.includes(norm))) hits.push(j);
+    });
+    const idx = Number(idxStr);
+    if (hits.length === 1 && hits[0] !== idx) return `${array}[${hits[0]}].${leaf}`;
+    return path;
+  }
+
+  /** 宽松等值比较:忽略空白与年月日常见分隔符(2026年1月 ≡ 2026-01 ≡ 2026.1)。 */
+  function looseEqual(a, b) {
+    const norm = (s) => String(s == null ? '' : s).replace(/[\s:/\-\.年月]/g, '').toLowerCase();
+    return norm(a) === norm(b) && norm(a) !== '';
+  }
+
   /** 在 option 列表中为 profile 值找最佳选项文本。 */
   function pickOption(options, profileValue) {
     let best = null;
@@ -123,8 +172,13 @@
       setNativeValue(el, String(value));
       return { status: 'filled', value: String(value) };
     }
-    // 用户已填过的字段不覆盖(防重复填充)
-    if ((el.value || '').trim()) return { status: 'kept' };
+    // 用户已填过的字段不覆盖(防重复填充);与档案不一致时报告而非静默保留
+    if ((el.value || '').trim()) {
+      const cur = (el.value || '').trim();
+      const want = String(value).trim();
+      if (looseEqual(cur, want)) return { status: 'kept', value: cur };
+      return { status: 'kept-mismatch', value: cur, reason: `当前值与档案不一致(档案为 ${want}),已保留现值,请人工核对` };
+    }
     if (el.type === 'date' || el.type === 'month' || /date|month/i.test(matchType || '')) {
       const v = coerceDate(value, el, matchType);
       setNativeValue(el, v);
@@ -298,7 +352,7 @@
             continue;
           }
           if (f.type === Matcher.T.CUSTOM_SELECT) {
-            const value = resolveValue(profile, f.path);
+            const value = resolveValue(profile, alignedPath(f.path, f.trigger || f.el, profile));
             if (value == null || value === '' || (Array.isArray(value) && value.length === 0)) {
               report.push(reportEntry({ ...f, status: 'no-value' }));
               continue;
@@ -307,7 +361,7 @@
             report.push(reportEntry({ ...f, ...res }));
           } else {
             const rawValues = (f.paths || [f.path])
-              .map((p) => resolveValue(profile, p))
+              .map((p) => resolveValue(profile, alignedPath(p, f.trigger || f.el, profile)))
               .filter((v) => v != null && v !== '');
             const requiresDay = f.valueType === Matcher.T.DATE && !['month', 'year'].includes(f.pickerPrecision);
             if (requiresDay && rawValues.some((value) => !hasCompleteDate(value))) {
@@ -332,7 +386,7 @@
           }
           continue;
         }
-        const value = resolveValue(profile, f.path);
+        const value = resolveValue(profile, alignedPath(f.path, f.el, profile));
         const res = fillElement(f.el, value, fillType);
         report.push(reportEntry({ ...f, ...res }));
       }
@@ -351,7 +405,7 @@
     if (!opts.skipRows) {
       for (const row of scanResult.rows) {
         for (const item of row.items) {
-          const value = resolveValue(profile, item.path);
+          const value = resolveValue(profile, alignedPath(item.path, item.el, profile));
           const res = fillElement(item.el, value, plannedType(item));
           report.push(reportEntry({ ...item, ...res }));
         }

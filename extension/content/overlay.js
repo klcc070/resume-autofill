@@ -433,7 +433,7 @@
     const bd = shadow.getElementById('bd');
     bd.innerHTML = '';
     bd.appendChild(el(shadow, 'div', 'sec', '填充结果'));
-    const ICON = { filled: ['b-ok', '已填'], kept: ['b-skip', '保留'], 'no-value': ['b-skip', '无值'], 'no-option': ['b-warn', '无选项'], 'unmatched-question': ['b-warn', '未配置'], skipped: ['b-skip', '跳过'] };
+    const ICON = { filled: ['b-ok', '已填'], kept: ['b-skip', '保留'], 'kept-mismatch': ['b-warn', '不一致'], 'no-value': ['b-skip', '无值'], 'no-option': ['b-warn', '无选项'], 'unmatched-question': ['b-warn', '未配置'], skipped: ['b-skip', '跳过'] };
     for (const r of report) {
       const [cls, txt] = ICON[r.status] || ['b-bad', r.status];
       const line = el(shadow, 'div', 'item');
