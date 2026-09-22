@@ -1,36 +1,32 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
-<head><meta charset="UTF-8" /><title>摩卡(Moka)仿真页:可搜索学校下拉 + 年月下拉</title>
+<head><meta charset="UTF-8" /><title>摩卡(Moka)仿真页:双教育行 + 学历预设 + 可搜索学校 + 年月下拉</title>
 <style>
   body { font: 14px/1.6 "Microsoft YaHei", sans-serif; padding: 30px; background: #f7f8fa; }
   .apply-field { margin: 14px 0; }
   .title-IWWQ0Xa4L7 { font-weight: 600; margin-bottom: 4px; }
-  .sd-Select-container-X, .sd-Input-container-X { display: inline-flex; align-items: center; border: 1px solid #ccc; border-radius: 6px; padding: 6px 10px; cursor: pointer; background: #fff; min-width: 90px; }
-  .sd-Select-container-X input, .sd-Input-container-X input { border: none; outline: none; width: 80px; }
+  .sd-Select-container-X { display: inline-flex; align-items: center; border: 1px solid #ccc; border-radius: 6px; padding: 6px 10px; cursor: pointer; background: #fff; min-width: 90px; }
+  .sd-Select-container-X input { border: none; outline: none; width: 80px; }
   .sd-Dropdown-dropdown-X { position: absolute; background: #fff; border: 1px solid #ddd; border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,.15); z-index: 99; max-height: 180px; overflow: auto; min-width: 200px; }
   .sd-Select-common-item-X { padding: 8px 12px; cursor: pointer; }
   .sd-Select-common-item-X:hover { background: #f0f5ff; }
   .month-range-select { display: inline-flex; gap: 6px; }
+  .row-hr { border: none; border-top: 2px dashed #ccd; margin: 26px 0; }
 </style>
 </head>
 <body>
-<h2>教育经历(摩卡仿真)</h2>
+<h2>教育经历 · 第 1 行(平台预设学历:高中)</h2>
 
 <div class="apply-field">
   <div class="title-IWWQ0Xa4L7"><span><span>学校名称</span></span></div>
-  <label class="sd-Select-container-Y" id="school-select" style="width:280px">
+  <label class="sd-Select-container-Y" id="school1-select" style="width:280px">
     <input type="text" placeholder="学校全称" autocomplete="nope" />
   </label>
 </div>
 
 <div class="apply-field">
-  <div class="title-IWWQ0Xa4L7"><span><span>学院</span></span></div>
-  <input type="text" id="college-input" placeholder="请输入学院" style="padding:6px 10px;border:1px solid #ccc;border-radius:6px;width:280px" />
-</div>
-
-<div class="apply-field">
   <div class="title-IWWQ0Xa4L7"><span><span>就读时间</span></span></div>
-  <div class="month-range-select wrapper-Z" id="moka-range">
+  <div class="month-range-select wrapper-Z" id="range1">
     <label class="sd-Select-container-A"><input placeholder="年" /></label>
     <label class="sd-Select-container-B"><input placeholder="月" /></label>
     <label class="sd-Select-container-C"><input placeholder="年" /></label>
@@ -40,22 +36,47 @@
 
 <div class="apply-field">
   <div class="title-IWWQ0Xa4L7"><span><span>学历</span></span></div>
-  <label class="sd-Select-container-E" id="degree-select"><input placeholder="请选择" readonly /></label>
+  <label class="sd-Select-container-E" id="degree1-select"><input value="高中" readonly /></label>
+</div>
+
+<hr class="row-hr" />
+<h2>教育经历 · 第 2 行(平台预设学历:本科)</h2>
+
+<div class="apply-field">
+  <div class="title-IWWQ0Xa4L7"><span><span>学校名称</span></span></div>
+  <label class="sd-Select-container-Y2" id="school2-select" style="width:280px">
+    <input type="text" placeholder="学校全称" autocomplete="nope" />
+  </label>
+</div>
+
+<div class="apply-field">
+  <div class="title-IWWQ0Xa4L7"><span><span>就读时间</span></span></div>
+  <div class="month-range-select wrapper-Z" id="range2">
+    <label class="sd-Select-container-F"><input placeholder="年" /></label>
+    <label class="sd-Select-container-G"><input placeholder="月" /></label>
+    <label class="sd-Select-container-H"><input placeholder="年" /></label>
+    <label class="sd-Select-container-I"><input placeholder="月" /></label>
+  </div>
+</div>
+
+<div class="apply-field">
+  <div class="title-IWWQ0Xa4L7"><span><span>学历</span></span></div>
+  <label class="sd-Select-container-J" id="degree2-select"><input value="本科" readonly /></label>
 </div>
 
 <div id="state" style="margin-top:30px;padding:10px;background:#eef;border-radius:6px"></div>
 <script>
-  const state = { school: '', college: '', years: ['', ''], months: ['', ''], degree: '' };
+  const state = { school1: '', school2: '', range1: ['', '', '', ''], range2: ['', '', '', ''] };
   window.getMokaState = () => state;
 
   function closeAll() { document.querySelectorAll('.sd-Dropdown-dropdown-X').forEach(d => d.remove()); }
   document.addEventListener('mousedown', (e) => { if (!e.target.closest('.sd-Dropdown-dropdown-X') && !e.target.closest('.sd-Select-container')) setTimeout(closeAll, 0); });
 
-  function openDropdown(anchor, options, onPick) {
+  function openDropdown(anchor, options) {
     closeAll();
     const dd = document.createElement('div');
-    dd.className = 'sd-Dropdown-dropdown-X sd-Dropdown-dropdown-REAL';
-    dd.innerHTML = '<div class="sd-Select-menu-X"><div class="sd-Select-scrollable-X"></div></div>';
+    dd.className = 'sd-Dropdown-dropdown-X';
+    dd.innerHTML = '<div class="sd-Select-scrollable-X"></div>';
     const list = dd.querySelector('.sd-Select-scrollable-X');
     const render = (opts) => {
       list.innerHTML = '';
@@ -63,7 +84,7 @@
         const item = document.createElement('div');
         item.className = 'sd-Select-common-item-X sd-Select-pointer-X';
         item.innerHTML = '<div class="sd-Menu-container-X"><div class="sd-Menu-content-item-X"><div>' + o + '</div></div></div>';
-        item.addEventListener('mousedown', (e) => { e.stopPropagation(); closeAll(); onPick(o); renderState(); });
+        item.addEventListener('mousedown', (e) => { e.stopPropagation(); closeAll(); item.dispatchEvent(new CustomEvent('pick', { bubbles: true, detail: o })); });
         list.appendChild(item);
       });
     };
@@ -72,42 +93,53 @@
     const r = anchor.getBoundingClientRect();
     dd.style.left = r.left + 'px';
     dd.style.top = r.bottom + 4 + 'px';
-    return { rerender: render };
+    return { rerender: render, dd };
   }
 
-  // 学校:可搜索下拉(输入过滤)
-  const schoolInput = document.querySelector('#school-select input');
-  let schoolDD = null;
-  const SCHOOLS = ['东北大学', '东北大学秦皇岛分校', '东北大学(日本)', '东北大学(波士顿)', '东北大学(美国)', '东北大学(泰国)', '东北电力大学', '大连东软信息学院', '辽宁工程技术大学', '波士顿东北大学'];
-  function openSchool() {
-    const kw = schoolInput.value.trim();
-    schoolDD = openDropdown(document.getElementById('school-select'), SCHOOLS.filter(s => !kw || s.includes(kw)), (v) => { state.school = v; schoolInput.value = v; });
-  }
-  document.getElementById('school-select').addEventListener('mousedown', (e) => { e.stopPropagation(); openSchool(); });
-  schoolInput.addEventListener('input', () => { if (schoolDD) schoolDD.rerender(SCHOOLS.filter(s => s.includes(schoolInput.value.trim()))); });
+  const SCHOOLS = ['东北大学', '东北大学秦皇岛分校', '辽宁工程技术大学', '华中科技大学', '北京市第一中学', '波士顿东北大学'];
 
-  // 年/月下拉(不可搜索,年从 2126 降到 1926,仿真真实顺序)
-  const YEARS = []; for (let y = 2126; y >= 1926; y--) YEARS.push(String(y));
-  const MONTHS = []; for (let m = 1; m <= 12; m++) MONTHS.push(String(m));
-  const range = document.getElementById('moka-range');
-  const containers = range.querySelectorAll('[class*="sd-Select-container-"]');
-  containers.forEach((c, i) => {
-    c.addEventListener('mousedown', (e) => {
+  // 可搜索学校下拉:label mousedown 打开,input 输入过滤
+  function bindSchool(labelId, stateKey) {
+    const label = document.getElementById(labelId);
+    const input = label.querySelector('input');
+    let cur = null;
+    label.addEventListener('mousedown', (e) => {
       e.stopPropagation();
-      const isYear = i === 0 || i === 2;
-      openDropdown(c, isYear ? YEARS : MONTHS, (v) => {
-        const input = c.querySelector('input');
-        input.value = v;
-        if (isYear) state.years[i === 0 ? 0 : 1] = v; else state.months[i === 1 ? 0 : 1] = v;
+      const kw = input.value.trim();
+      cur = openDropdown(label, SCHOOLS.filter(s => !kw || s.includes(kw)));
+      // 选项点击:通过捕获 pick 冒泡事件取值
+      cur.dd.addEventListener('pick', (ev) => {
+        input.value = ev.detail;
+        state[stateKey] = ev.detail;
+        renderState();
       });
     });
-  });
+    input.addEventListener('input', () => { if (cur) cur.rerender(SCHOOLS.filter(s => s.includes(input.value.trim()))); });
+  }
+  bindSchool('school1-select', 'school1');
+  bindSchool('school2-select', 'school2');
 
-  // 学历下拉
-  document.getElementById('degree-select').addEventListener('mousedown', (e) => {
-    e.stopPropagation();
-    openDropdown(document.getElementById('degree-select'), ['大专', '本科', '硕士', '博士'], (v) => { state.degree = v; document.querySelector('#degree-select input').value = v; });
-  });
+  // 年/月下拉(年 2126→1926 降序,仿真真实顺序)
+  const YEARS = []; for (let y = 2126; y >= 1926; y--) YEARS.push(String(y));
+  const MONTHS = []; for (let m = 1; m <= 12; m++) MONTHS.push(String(m));
+  function bindRange(rangeId, stateKey) {
+    const range = document.getElementById(rangeId);
+    const containers = range.querySelectorAll('[class*="sd-Select-container-"]');
+    containers.forEach((c, i) => {
+      c.addEventListener('mousedown', (e) => {
+        e.stopPropagation();
+        const isYear = i === 0 || i === 2;
+        const opened = openDropdown(c, isYear ? YEARS : MONTHS);
+        opened.dd.addEventListener('pick', (ev) => {
+          c.querySelector('input').value = ev.detail;
+          state[stateKey] = state[stateKey].map((v, k) => (k === i ? ev.detail : v));
+          renderState();
+        });
+      });
+    });
+  }
+  bindRange('range1', 'range1');
+  bindRange('range2', 'range2');
 
   function renderState() { document.getElementById('state').textContent = JSON.stringify(state); }
   renderState();

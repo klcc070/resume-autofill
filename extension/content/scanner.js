@@ -657,7 +657,8 @@
         const prefix = base && base.match(/^(education|internships|employment|projects|awards)\[\d+\]\./)?.[0];
         if (prefix) paths = [`${prefix}startDate`, `${prefix}endDate`];
       }
-      pushCustom('custom-picker', wrapper, Matcher.T.CUSTOM_PICKER, paths, wrapper, true);
+      // 仅当存在框架语义标识(沐瞳 data-cy 等)才保留显式路径;摩卡等无标识组件交给 DOM 顺序分配行号
+      pushCustom('custom-picker', wrapper, Matcher.T.CUSTOM_PICKER, paths, wrapper, !!identity);
       processedPickerWrappers.add(wrapper);
     }
 

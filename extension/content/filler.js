@@ -304,6 +304,72 @@
     return out;
   }
 
+
+  /** 读取学历控件当前已选值(输入框值或展示文本) */
+  function readDegreeValue(field) {
+    const t = field && (field.trigger || field.el);
+    if (!t || !t.querySelector) return '';
+    const inp = t.querySelector('input');
+    const disp = t.querySelector('[class*="display-value"], [class*="selection-item"], [class*="selected"]');
+    return String(((inp && inp.value) || (disp && disp.textContent) || '')).trim();
+  }
+
+  /**
+   * 多段教育重排:表单某行"学历"已有值(平台预填/用户手选)时,把该行绑定到档案中
+   * 学历一致的教育条目,避免"学校学院对不上"(位置硬对导致的错位)。
+   * 无预设学历的行按剩余条目顺序兜底;paths 形式(起止时间选择器)同步重写。
+   */
+  function rebindEducationByDegree(scanResult, profile) {
+    if (scanResult.__eduRebound) return;
+    scanResult.__eduRebound = true;
+    const edu = (profile && profile.education) || [];
+    if (edu.length < 2) return;
+    const rows = new Map();
+    const collect = (f) => {
+      for (const p of [f.path, ...(f.paths || [])]) {
+        const m = String(p || '').match(/^education\[(\d+)\]\.(.+)$/);
+        if (!m) continue;
+        const i = Number(m[1]);
+        if (!rows.has(i)) rows.set(i, { degreeField: null, fields: [] });
+        const row = rows.get(i);
+        row.fields.push(f);
+        if (m[2] === 'degree') row.degreeField = f;
+      }
+    };
+    (scanResult.fields || []).forEach(collect);
+    if (rows.size < 2) return;
+
+    const norm = (s) => Matcher.normalize(s || '');
+    const degOf = (e) => String((e && e.degree) || '').trim();
+    const mapping = new Map();
+    const used = new Set();
+    for (const [i, row] of rows) {
+      const ui = readDegreeValue(row.degreeField);
+      if (!ui) continue;
+      const hit = edu.findIndex((e, j) => {
+        const d = degOf(e);
+        return d && !used.has(j) && (norm(d) === norm(ui) || norm(d).includes(norm(ui)) || norm(ui).includes(norm(d)));
+      });
+      if (hit >= 0) { mapping.set(i, hit); used.add(hit); }
+    }
+    if (!mapping.size) return;
+    // 未识别行 → 剩余档案条目按序兜底
+    const free = edu.map((_, j) => j).filter((j) => !used.has(j));
+    let n = 0;
+    for (const i of rows.keys()) {
+      if (mapping.has(i)) continue;
+      if (n < free.length) { mapping.set(i, free[n]); used.add(free[n]); n++; }
+    }
+    for (const [i, row] of rows) {
+      const t = mapping.get(i);
+      if (t == null || t === i) continue;
+      for (const f of row.fields) {
+        if (f.path) f.path = String(f.path).replace(/^education\[\d+\]/, 'education[' + t + ']');
+        if (f.paths) f.paths = f.paths.map((p) => String(p).replace(/^education\[\d+\]/, 'education[' + t + ']'));
+      }
+    }
+  }
+
   /**
    * 执行填充(异步:自定义组件需要等待面板)。
    * @param {object} scanResult Scanner.scan() 的结果
@@ -312,6 +378,7 @@
    * @returns {Promise<{report: object[], addedRows: number}>} 报告行均已脱敏
    */
   async function fill(scanResult, profile, opts = {}) {
+    rebindEducationByDegree(scanResult, profile);
     const report = [];
     let addedRows = 0;
 
