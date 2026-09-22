@@ -172,12 +172,18 @@
       setNativeValue(el, String(value));
       return { status: 'filled', value: String(value) };
     }
-    // 用户已填过的字段不覆盖(防重复填充);与档案不一致时报告而非静默保留
+    // 档案为唯一事实源:已有值但与档案不一致时以档案覆盖,报告中保留原值供核对
     if ((el.value || '').trim()) {
       const cur = (el.value || '').trim();
       const want = String(value).trim();
       if (looseEqual(cur, want)) return { status: 'kept', value: cur };
-      return { status: 'kept-mismatch', value: cur, reason: `当前值与档案不一致(档案为 ${want}),已保留现值,请人工核对` };
+      if (el.type === 'date' || el.type === 'month' || /date|month/i.test(matchType || '')) {
+        const v = coerceDate(value, el, matchType);
+        setNativeValue(el, v);
+        return { status: 'filled', value: v, reason: `原值 ${cur} 已按档案覆盖` };
+      }
+      setNativeValue(el, String(value));
+      return { status: 'filled', value: String(value), reason: `原值 ${cur} 已按档案覆盖` };
     }
     if (el.type === 'date' || el.type === 'month' || /date|month/i.test(matchType || '')) {
       const v = coerceDate(value, el, matchType);

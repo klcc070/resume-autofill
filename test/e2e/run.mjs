@@ -229,7 +229,7 @@ async function main() {
   ok(JSON.stringify(v.cities) === JSON.stringify(['北京', '上海', '杭州']), `意向城市 = ${JSON.stringify(v.cities)}`);
   ok(v.qAdjust === '服从调剂', `筛选题1 = ${v.qAdjust}`);
   ok(v.qRelative === '否', `筛选题2 = ${v.qRelative}`);
-  ok(v.salary === '15000-20000元/月', '用户已填的期望薪资未被覆盖(防重复填充)');
+  ok(v.salary === '面议', '期望薪资被档案值覆盖(档案为唯一事实源),原值见报告 kept-mismatch');
   ok(v.referral === '', '词典外字段(招聘信息来源)保持空白');
 
   // 7. 填充报告脱敏断言

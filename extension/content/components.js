@@ -256,6 +256,33 @@
       }
     }
     // 兜底:不依赖类名,遍历面板可见叶子节点,文本与目标一致的直接点选。
+    // 长列表(虚拟滚动)兜底:逐屏滚动扫描目标文本,找到即点选
+    if (clicked === 0 && panel) {
+      const scrollable = Array.from(panel.querySelectorAll('[class*="scroll"], [class*="menu"], ul, [role="listbox"]')).find(
+        (s) => visible(s) && s.scrollHeight > s.clientHeight + 50
+      ) || panel;
+      for (let step = 0; step < 30 && clicked === 0; step++) {
+        const before2 = clicked;
+        for (const w of wants) {
+          const hit = findLeafOption(scrollable, w);
+          if (hit) { realClick(hit); clicked += 1; break; }
+        }
+        if (clicked > before2) break;
+        const prevTop = scrollable.scrollTop;
+        scrollable.scrollTop = prevTop + Math.max(240, scrollable.clientHeight * 0.75);
+        await sleep(70);
+        if (scrollable.scrollTop === prevTop) {
+          scrollable.scrollTop = Math.max(0, prevTop - Math.max(240, scrollable.clientHeight * 0.75));
+          await sleep(60);
+          for (const w of wants) {
+            const hit2 = findLeafOption(scrollable, w);
+            if (hit2) { realClick(hit2); clicked += 1; break; }
+          }
+          break;
+        }
+      }
+    }
+
     for (const w of wants) {
       if (clickedTexts.some((t) => getMatcher().optionScore(t, w) > 0)) continue;
       const hit = findLeafOption(panel, w);
