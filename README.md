@@ -29,6 +29,16 @@
 
 对应网页字段为“奖项名称 → name”、“获奖时间 → date”、“获奖级别 → level”、“奖项描述 → description”。
 
+## 复用 ZCode 套餐(可选,免单独购买 API Key)
+
+ZCode 的模型套餐走智谱 Anthropic 兼容端点,而扩展只认 OpenAI 兼容格式。仓库提供本地转换代理 `tools/zcode-ai-proxy.mjs`(读取 ~/.zcode/cli/config.json 的套餐配置,密钥不出本机):
+
+```bash
+node tools/zcode-ai-proxy.mjs        # 监听 http://127.0.0.1:8787
+```
+
+插件「AI 设置」:服务商选「自定义接口」,API 地址填 `http://127.0.0.1:8787/v1/chat/completions`,模型填 `GLM-5.3-Flash`,Key 随意填非空即可(代理自动使用 ZCode 本地凭据)。本机回环地址允许 HTTP,其余域名强制 HTTPS。
+
 ## 数据脱敏(核心设计)
 
 | 环节 | 策略 |

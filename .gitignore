@@ -1,3 +1,5 @@
 node_modules/
 test/e2e/output/
 *.local.json
+.tmp-crawl/
+proxy.log
