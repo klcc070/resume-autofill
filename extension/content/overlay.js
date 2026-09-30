@@ -13,6 +13,7 @@
   let lastScan = null;
   let lastProfile = null;
   let lastReport = null;
+  const aiPlanCache = globalThis.__resumeAiPlanCache || (globalThis.__resumeAiPlanCache = new Map());
 
   function ensurePanel() {
     let host = document.getElementById(HOST_ID);
@@ -122,9 +123,11 @@
   }
 
   function aiDescriptor(source, fieldIndex, existingPath, label, targetId) {
-    const attr = (a) => (source.el && source.el.getAttribute ? source.el.getAttribute(a) : null);
+    const target = source.trigger || source.el;
+    const attr = (a) => (target && target.getAttribute ? target.getAttribute(a) : null);
     const controlled = attr('aria-controls') ? document.getElementById(attr('aria-controls')) : null;
-    const optionRoot = source.el && source.el.tagName === 'SELECT' ? source.el : controlled;
+    const optionRoot = target && target.tagName === 'SELECT' ? target : controlled;
+    const context = source.rowContainer || target?.closest?.('[data-cy], [class*="form-item"], [class*="FormItem"]') || target?.parentElement;
     return {
       fieldIndex,
       targetId,
@@ -137,6 +140,11 @@
       existingPath: existingPath || undefined,
       semanticName: source.identity?.leaf || undefined,
       fingerprint: source.fingerprint || undefined,
+      section: source.section || undefined,
+      itemIndex: source.itemIndex ?? source.identity?.index ?? undefined,
+      currentValue: target && 'value' in target ? String(target.value || '') : String(target?.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 180),
+      contextText: String(context?.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 320),
+      html: String(target?.parentElement?.outerHTML || target?.outerHTML || '').slice(0, 1200),
       options: optionRoot
         ? Array.from(optionRoot.querySelectorAll('option, [role="option"], li')).map((o) => o.textContent.trim()).filter(Boolean).slice(0, 20)
         : undefined,
@@ -262,11 +270,22 @@
           const legacyKey = globalThis.Matcher.normalize(item.label || '');
           const key = item.fingerprint || legacyKey;
           const p = siteMap[key] || siteMap[legacyKey];
-          if (typeof p === 'string' && p) item.path = p;
+          if (typeof p === 'string' && p) { item.path = p; scan.__aiPlanned = true; }
         }
       }
     } catch {}
-    return renderPreview(scan, profile);
+    let summary = renderPreview(scan, profile);
+    try {
+      const { aiConfig } = await chrome.storage.local.get('aiConfig');
+      if (aiConfig?.endpoint && aiConfig?.apiKey && aiConfig?.includeProfile === true) {
+        const planned = await ResumeAutofill.aiSmartPlan();
+        if (!planned.error && planned.applied) summary = renderPreview(lastScan, profile);
+        summary.ai = planned;
+      }
+    } catch (error) {
+      summary.ai = { error: String(error?.message || error) };
+    }
+    return summary;
   }
 
   /**
@@ -416,15 +435,23 @@
   /** 执行填充并渲染报告。增行后重扫一次再填行。 */
   async function fill() {
     if (!lastScan || !lastProfile) return { error: '请先扫描' };
+    let aiConfig = null;
+    try { aiConfig = (await chrome.storage.local.get('aiConfig')).aiConfig || null; } catch {}
     const existingGroups = new Set((lastScan.groups || []).flatMap((g) => g.els || []));
-    const pass1 = await globalThis.Filler.fill(lastScan, lastProfile, { skipRows: true });
+    const pass1 = await globalThis.Filler.fill(lastScan, lastProfile, { skipRows: true, aiConfig });
     let report = pass1.report;
     let addedRows = pass1.addedRows;
-    if (pass1.addedRows > 0) lastScan = globalThis.Scanner.scan();
+    if (pass1.addedRows > 0) {
+      lastScan = globalThis.Scanner.scan();
+      if (aiConfig?.endpoint && aiConfig?.apiKey && aiConfig?.includeProfile === true) {
+        try { await ResumeAutofill.aiSmartPlan(); } catch {}
+      }
+    }
     const pass2 = await globalThis.Filler.fill(lastScan, lastProfile, {
       rowsOnly: true,
       includeGroups: pass1.addedRows > 0,
       skipGroups: existingGroups,
+      aiConfig,
     });
     report = report.concat(pass2.report);
     addedRows += pass2.addedRows;
@@ -459,6 +486,8 @@
       bd.appendChild(line);
     }
     if (addedRows > 0) bd.appendChild(el(shadow, 'div', 'note', `已通过页面"添加"按钮新增 ${addedRows} 行经历。`));
+    const aiUsage = globalThis.AIMapping?.getUsage?.();
+    if (aiUsage?.calls) bd.appendChild(el(shadow, 'div', 'note', `本页 AI 调用 ${aiUsage.calls} 次；接口报告输入 ${aiUsage.inputTokens}、输出 ${aiUsage.outputTokens} tokens（接口未返回用量时为 0）。`));
     bd.appendChild(el(shadow, 'div', 'note', '填充完成。请逐项核对后再自行提交,本工具不会替你提交。'));
     shadow.getElementById('btn-fill').textContent = '重新填充';
     return { report, addedRows };
@@ -479,6 +508,7 @@
   const ResumeAutofill = {
     preview: previewWithMappings,
     fill,
+    getReport: () => lastReport,
     /** AI 智能规划:把简历内容与整页结构一起分析,返回受限的高层操作计划。 */
     async aiSmartPlan() {
       if (!lastScan || !lastProfile) return { error: '请先扫描' };
@@ -491,7 +521,13 @@
       } catch {}
       if (!cfg || !cfg.apiKey || !cfg.endpoint) return { error: '未配置 AI:请先在插件弹窗的「AI 设置」中填写' };
       if (cfg.includeProfile !== true) return { error: '请先在 AI 设置中勾选“允许 AI 读取简历内容”' };
-      const actions = await globalThis.AIMapping.planForm(built.page, lastProfile, cfg);
+      const cacheKey = JSON.stringify([location.origin, location.pathname, built.page, lastProfile]);
+      const cached = aiPlanCache.has(cacheKey);
+      const actions = cached ? aiPlanCache.get(cacheKey) : await globalThis.AIMapping.planForm(built.page, lastProfile, cfg);
+      if (!cached && actions.length) {
+        aiPlanCache.set(cacheKey, actions);
+        while (aiPlanCache.size > 3) aiPlanCache.delete(aiPlanCache.keys().next().value);
+      }
       const host = location.hostname;
       const st = await chrome.storage.local.get('siteMappings');
       const maps = st.siteMappings || {};
@@ -538,7 +574,8 @@
       }
       maps[host] = siteMap;
       await chrome.storage.local.set({ siteMappings: maps });
-      return { applied, total: actions.length };
+      if (applied > 0) lastScan.__aiPlanned = true;
+      return { applied, total: actions.length, cached, usage: globalThis.AIMapping.getUsage() };
     },
     /** AI 整表理解:按记录行一次性路由字段,再交给原有确定性填充器执行。 */
     async aiPlanTables() {

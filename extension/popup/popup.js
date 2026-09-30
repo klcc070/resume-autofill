@@ -193,12 +193,12 @@ async function loadAiSettings() {
     const provider = inferAiProvider(cfg);
     const preset = AI_PROVIDERS[provider];
     $('ai-provider').value = provider;
-    $('ai-share-profile').checked = cfg.includeProfile === true;
-    $('ai-share-sensitive').checked = cfg.includeSensitive === true;
+    $('ai-share-profile').checked = cfg.includeProfile !== false;
+    $('ai-share-sensitive').checked = cfg.includeSensitive !== false;
     $('ai-endpoint').value = cfg.endpoint || preset.endpoint;
     $('ai-model').value = cfg.model || preset.model;
     $('ai-key').value = cfg.apiKey || '';
-    $('ai-status').textContent = cfg.apiKey ? 'AI 已配置(识别低匹配字段时可用)' : '未配置:规则识别不了的字段将只能手动填写';
+    $('ai-status').textContent = cfg.apiKey ? (cfg.includeProfile ? 'AI 已配置：扫描时自动规划' : 'AI 已配置：勾选启用后自动规划') : '未配置：仍可使用本地填充';
   } catch (e) {
     $('ai-status').textContent = '读取设置失败:' + e.message;
   }
@@ -212,6 +212,9 @@ async function saveAiSettings() {
     const model = ($('ai-model').value || preset.model).trim();
     const apiKey = $('ai-key').value.trim();
     if (!endpoint || !model) throw new Error('请填写 API 地址和模型名');
+    const u = new URL(endpoint);
+    const isLoopback = ['127.0.0.1', 'localhost', '[::1]'].includes(u.hostname);
+    if (u.protocol !== 'https:' && !isLoopback) throw new Error('AI 接口必须使用 HTTPS(本机代理可用 http://127.0.0.1)');
     if (apiKey) {
       const origin = new URL(endpoint).origin + '/*';
       const ok = await chrome.permissions.request({ origins: [origin] });

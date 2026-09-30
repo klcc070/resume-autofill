@@ -54,9 +54,9 @@
     if (op === 'radio' && el.type === 'radio') return Matcher.T.RADIO;
     if (op === 'checkbox' && el.type === 'checkbox') return Matcher.T.CHECKBOX_GROUP;
     if (op === 'date-input' && tag === 'input' && el.type === 'date') return Matcher.T.DATE;
-    if (op === 'month-picker' && entry.type === Matcher.T.CUSTOM_PICKER) return Matcher.T.CUSTOM_PICKER;
-    if (op === 'date-range-picker' && entry.type === Matcher.T.CUSTOM_PICKER) return Matcher.T.CUSTOM_PICKER;
-    if (op === 'custom-select' && entry.type === Matcher.T.CUSTOM_SELECT) return Matcher.T.CUSTOM_SELECT;
+    const customRoot = entry.trigger || el.closest?.('[role="combobox"], [class*="picker"], [class*="select"]');
+    if ((op === 'month-picker' || op === 'date-range-picker') && customRoot) return Matcher.T.CUSTOM_PICKER;
+    if (op === 'custom-select' && customRoot) return Matcher.T.CUSTOM_SELECT;
     return entry.type;
   }
 
@@ -307,7 +307,38 @@
       out.value = Mask.isSensitive(p) ? Mask.maskValue(p, entry.value) : String(entry.value);
     }
     if (entry.reason) out.reason = entry.reason;
+    if (entry.verification) out.verification = entry.verification;
+    if (entry.repairSteps) out.repairSteps = entry.repairSteps;
     return out;
+  }
+
+  /** 交互完成不等于 React 接受了值；读回目标控件，必要时让 AI 局部修复。 */
+  async function verifiedEntry(source, result, desired, opts = {}) {
+    if (!globalThis.FillAgent || desired == null || desired === '' || /缺少具体日/.test(result.reason || '') ||
+        !['filled', 'kept', 'kept-mismatch', 'no-option', 'need-manual'].includes(result.status)) {
+      return reportEntry({ ...source, ...result });
+    }
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    let check = globalThis.FillAgent.readback(source, desired);
+    if (check.state === 'verified') {
+      return reportEntry({ ...source, ...result, status: result.status === 'kept' ? 'kept' : 'filled', verification: '读回一致' });
+    }
+    if (opts.aiConfig?.apiKey && opts.aiConfig?.endpoint && opts.aiConfig?.includeProfile === true) {
+      try {
+        const repaired = await globalThis.FillAgent.repair(source, desired, opts.aiConfig);
+        if (repaired.status === 'filled') {
+          return reportEntry({ ...source, ...repaired, verification: 'AI 修复后读回一致', repairSteps: repaired.trace.length });
+        }
+        result = { ...result, status: 'need-manual', reason: repaired.reason, repairSteps: repaired.trace.length };
+      } catch (error) {
+        result = { ...result, status: 'need-manual', reason: `AI 修复失败: ${error.message || error}` };
+      }
+    } else if (result.status === 'filled') {
+      result = { ...result, status: check.state === 'mismatch' ? 'verify-failed' : 'unverified',
+        reason: `未能确认页面保留了目标值；当前 ${check.current.join(' ~ ') || '空'}` };
+    }
+    check = globalThis.FillAgent.readback(source, desired);
+    return reportEntry({ ...source, ...result, verification: check.state });
   }
 
 
@@ -326,6 +357,7 @@
    * 无预设学历的行按剩余条目顺序兜底;paths 形式(起止时间选择器)同步重写。
    */
   function rebindEducationByDegree(scanResult, profile) {
+    if (scanResult.__aiPlanned) return;
     if (scanResult.__eduRebound) return;
     scanResult.__eduRebound = true;
     const edu = (profile && profile.education) || [];
@@ -336,10 +368,10 @@
         const m = String(p || '').match(/^education\[(\d+)\]\.(.+)$/);
         if (!m) continue;
         const i = Number(m[1]);
-        if (!rows.has(i)) rows.set(i, { degreeField: null, fields: [] });
+        if (!rows.has(i)) rows.set(i, { degreeCandidates: [], fields: [] });
         const row = rows.get(i);
         row.fields.push(f);
-        if (m[2] === 'degree') row.degreeField = f;
+        if (m[2] === 'degree' && !/^(是否|最高|最近|当前)/.test(String(f.label || ''))) row.degreeCandidates.push(f);
       }
     };
     (scanResult.fields || []).forEach(collect);
@@ -350,7 +382,10 @@
     const mapping = new Map();
     const used = new Set();
     for (const [i, row] of rows) {
-      const ui = readDegreeValue(row.degreeField);
+      // 候选集:优先取"值能对上某条档案学历"的那个(学历/学位/类型等皆可作候选)
+      const ui = (row.degreeCandidates || [])
+        .map((cand) => readDegreeValue(cand))
+        .find((v) => v && edu.some((e) => { const d = String((e && e.degree) || '').trim(); return d && (Matcher.normalize(d) === Matcher.normalize(v) || Matcher.normalize(d).includes(Matcher.normalize(v)) || Matcher.normalize(v).includes(Matcher.normalize(d))); }));
       if (!ui) continue;
       const hit = edu.findIndex((e, j) => {
         const d = degOf(e);
@@ -424,17 +459,17 @@
             report.push(reportEntry({ ...f, status: 'skipped', reason: '组件适配层未加载' }));
             continue;
           }
-          if (f.type === Matcher.T.CUSTOM_SELECT) {
-            const value = resolveValue(profile, alignedPath(f.path, f.trigger || f.el, profile));
+          if (fillType === Matcher.T.CUSTOM_SELECT) {
+            const value = resolveValue(profile, f.aiOperation ? f.path : alignedPath(f.path, f.trigger || f.el, profile));
             if (value == null || value === '' || (Array.isArray(value) && value.length === 0)) {
               report.push(reportEntry({ ...f, status: 'no-value' }));
               continue;
             }
             const res = await globalThis.Components.fillCustomSelect(f.trigger || f.el, value, Array.isArray(value));
-            report.push(reportEntry({ ...f, ...res }));
+            report.push(await verifiedEntry(f, res, value, opts));
           } else {
             const rawValues = (f.paths || [f.path])
-              .map((p) => resolveValue(profile, alignedPath(p, f.trigger || f.el, profile)))
+              .map((p) => resolveValue(profile, f.aiOperation ? p : alignedPath(p, f.trigger || f.el, profile)))
               .filter((v) => v != null && v !== '');
             const requiresDay = f.valueType === Matcher.T.DATE && !['month', 'year'].includes(f.pickerPrecision);
             if (requiresDay && rawValues.some((value) => !hasCompleteDate(value))) {
@@ -455,13 +490,13 @@
               continue;
             }
             const res = await globalThis.Components.fillCustomPicker(f.trigger || f.el, values);
-            report.push(reportEntry({ ...f, ...res, value: res.value }));
+            report.push(await verifiedEntry(f, { ...res, value: res.value }, values, opts));
           }
           continue;
         }
-        const value = resolveValue(profile, alignedPath(f.path, f.el, profile));
+        const value = resolveValue(profile, f.aiOperation ? f.path : alignedPath(f.path, f.el, profile));
         const res = fillElement(f.el, value, fillType);
-        report.push(reportEntry({ ...f, ...res }));
+        report.push(await verifiedEntry(f, res, value, opts));
       }
 
       // 3) radio / checkbox 组
@@ -478,9 +513,9 @@
     if (!opts.skipRows) {
       for (const row of scanResult.rows) {
         for (const item of row.items) {
-          const value = resolveValue(profile, alignedPath(item.path, item.el, profile));
+          const value = resolveValue(profile, item.aiOperation ? item.path : alignedPath(item.path, item.el, profile));
           const res = fillElement(item.el, value, plannedType(item));
-          report.push(reportEntry({ ...item, ...res }));
+          report.push(await verifiedEntry(item, res, value, opts));
         }
       }
     }

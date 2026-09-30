@@ -1,8 +1,8 @@
 /**
- * service-worker.js — 扫描编排
+ * service-worker.js — 扫描编排与 AI 网络请求
  * 两个入口:popup 发来 {type:'scan'} / 用户按快捷键 Ctrl+Shift+F(commands)。
  * 档案一律从 chrome.storage.local 读取(单一数据源,不经过消息体,避免敏感信息多处流转)。
- * 生产清单不申请任何 host 权限:仅依赖 activeTab(用户点击图标/快捷键后授权当前页)。
+ * 网申页面依赖 activeTab；AI 接口域名由用户在设置页按需授权。
  */
 const CONTENT_FILES = [
   'shared/mask.js',
@@ -11,6 +11,7 @@ const CONTENT_FILES = [
   'content/components.js',
   'content/scanner.js',
   'content/filler.js',
+  'content/agent.js',
   'content/overlay.js',
 ];
 
@@ -53,6 +54,31 @@ async function runOnActiveTab() {
 }
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg && msg.type === 'ai-request') {
+    (async () => {
+      try {
+        if (sender.id !== chrome.runtime.id || !sender.tab) throw new Error('AI 请求来源无效');
+        const { aiConfig } = await chrome.storage.local.get('aiConfig');
+        if (!aiConfig?.apiKey || !aiConfig?.endpoint) throw new Error('AI 未配置');
+        const url = new URL(aiConfig.endpoint);
+        if (url.protocol !== 'https:') throw new Error('AI 接口必须使用 HTTPS');
+        const payload = msg.payload;
+        const encoded = JSON.stringify(payload);
+        if (!payload || !Array.isArray(payload.messages) || encoded.length > 280000) throw new Error('AI 请求内容无效或过大');
+        payload.model = aiConfig.model;
+        const res = await fetch(url.href, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + aiConfig.apiKey },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) throw new Error('HTTP ' + res.status + ' ' + (await res.text()).slice(0, 200));
+        sendResponse({ ok: true, data: await res.json() });
+      } catch (error) {
+        sendResponse({ ok: false, error: String(error?.message || error) });
+      }
+    })();
+    return true;
+  }
   if (msg && msg.type === 'scan') {
     (async () => {
       try {

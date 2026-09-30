@@ -746,6 +746,14 @@
     }
     const m = f.path && f.path.match(/^(education|internships|employment|projects|awards)\[(\d+)\]\.(.+)$/);
     if (!m) continue;
+    // 汇总/判断类字段(如"最高学历""最近毕业专业""是否最高学历")不属于任何一段经历:
+    // 若参与顺序分配会污染行数据与按学历绑定,统一移入未匹配交由 AI/人工处理
+    if (/^(是否)/.test(String(f.label || '')) || (!f.rowScoped && /^(最高|最近|当前)/.test(String(f.label || '')))) {
+      f.summary = true;
+      results.unmatched.push({ kind: 'field', label: f.label, el: f.el, reason: '汇总/判断字段,不并入经历段' });
+      f.__dropFromFields = true;
+      continue;
+    }
     if (f.rowScoped) continue;
     if (f.identity) {
       const key = f.identity.array + '.' + m[3];
@@ -768,6 +776,7 @@
       seqCounters[key] += 1;
     }
   }
+  results.fields = results.fields.filter((x) => !x.__dropFromFields);
   return results;
   }
 

@@ -545,6 +545,38 @@
   }
 
   /** Moka 月份范围由四个独立 Select 组成：开始年/月、结束年/月。 */
+  /** 摩卡年月子下拉通用配对:角色(年/月)按占位符与现值识别,start/end 按 x 坐标(隐藏时回退 DOM 序) */
+  function mokaPairSubSelects(unique) {
+    const roles = unique.map((el) => {
+      const inp = el.querySelector('input');
+      const disp = el.querySelector('[class*="display-value"]');
+      const ph = (inp && inp.placeholder) || '';
+      const val = ((inp && inp.value) || (disp && disp.textContent) || '').trim();
+      if (/年|year/i.test(ph)) return 'Y';
+      if (/月|month/i.test(ph)) return 'M';
+      if (/^\d{4}$/.test(val)) return 'Y';
+      if (/^\d{1,2}$/.test(val)) return 'M';
+      return '?';
+    });
+    const xOf = (i) => {
+      const r = unique[i].getBoundingClientRect();
+      return r.left || unique[i].offsetLeft || i * 100;
+    };
+    const yIdx = roles.map((r, i) => (r === 'Y' ? i : -1)).filter((i) => i >= 0);
+    const mIdx = roles.map((r, i) => (r === 'M' ? i : -1)).filter((i) => i >= 0);
+    // 默认布局 年月|年月(按 DOM 序两两一组);角色可辨且数量齐时,按坐标重组
+    if (yIdx.length >= 2 && mIdx.length >= 2) {
+      const ys = yIdx.slice(0, 2).sort((a, b) => xOf(a) - xOf(b));
+      const restM = mIdx.slice();
+      const near = (y) => restM.reduce((best, m2) => (Math.abs(xOf(m2) - xOf(y)) < Math.abs(xOf(best) - xOf(y)) ? m2 : best), restM[0]);
+      const m1 = near(ys[0]);
+      restM.splice(restM.indexOf(m1), 1);
+      const m2 = near(ys[1]);
+      return [[ys[0], m1], [ys[1], m2]];
+    }
+    return [[0, 1], [2, 3]];
+  }
+
   async function fillMokaMonthRange(trigger, values) {
     const selects = Array.from(trigger.querySelectorAll('[class*="sd-Select-container-"]')).filter((el) => {
       const cls = String(el.className || '');
@@ -552,6 +584,7 @@
     });
     const unique = Array.from(new Set(selects));
     if (unique.length < 2) return { status: 'need-manual', reason: '月份下拉结构不完整' };
+    const pairs = mokaPairSubSelects(unique);
     const filled = [];
     for (let i = 0; i < Math.min(values.length, 2); i++) {
       const value = String(values[i] || '');
@@ -563,8 +596,8 @@
       }
       const match = value.match(/^(\d{4})-(\d{1,2})/);
       if (!match) continue;
-      const yearTrigger = unique[i * 2];
-      const monthTrigger = unique[i * 2 + 1];
+      const yearTrigger = unique[pairs[i][0]];
+      const monthTrigger = unique[pairs[i][1]];
       if (!yearTrigger || !monthTrigger) return { status: 'need-manual', reason: '开始/结束年月下拉数量不足' };
       const yearResult = await fillCustomSelect(yearTrigger, match[1], false);
       if (yearResult.status !== 'filled' && yearResult.status !== 'kept') return yearResult;

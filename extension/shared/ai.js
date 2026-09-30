@@ -1,7 +1,7 @@
 /**
- * ai.js — AI 兜底字段映射(方案 A:规则失败时,把"字段描述"发给大模型,换回档案路径建议)
- * 隐私边界:只发送字段的 label/placeholder/aria/选项文字等描述信息,绝不发送用户已填的值。
- * 结果仅作为"建议"展示,用户确认后写入站点记忆(siteMappings),同站二次起纯本地生效。
+ * ai.js — AI 整页规划、受限交互动作与旧版字段映射接口。
+ * 整页规划会发送页面局部 HTML、现值和简历；后台负责实际模型请求。
+ * 输出路径与动作经过本地白名单校验，不接收模型生成的任意脚本。
  * 兼容:扩展各上下文(globalThis.AIMapping)与 Node 测试(module.exports)。
  */
 (function (root) {
@@ -48,7 +48,8 @@
 
   const SMART_SYSTEM_PROMPT =
     '你是网申智能填充规划器。输入包含网页字段/表格结构和用户简历档案,请做全局语义匹配并为每个可填目标生成操作计划。' +
-    '优先依据档案内容、网页区块、表格行号和字段标签进行整体对齐;同一经历行的公司、职位、内容、开始时间、结束时间必须来自同一条档案记录。' +
+    '优先依据档案内容、网页区块、已有值、附近 HTML 和字段标签进行整体对齐;网页行号不等于简历记录下标。' +
+    '同一经历行的公司、职位、内容、开始时间、结束时间必须来自同一条档案记录,同一表内不同网页行应匹配不同简历记录。' +
     'operation 只能是 text、textarea、native-select、custom-select、radio、checkbox、date-input、month-picker、date-range-picker 或 auto;' +
     'operation 是高层控件意图,不要输出 CSS 选择器、JavaScript 或点击步骤;日期只输出档案路径,不要改写日期值。' +
     '无法确定的字段不要猜,可以省略。只输出 JSON 对象,不要输出解释,格式为 ' +
@@ -75,6 +76,32 @@
       if (Array.isArray(parsed?.[key])) return parsed[key];
     }
     throw new Error('AI 返回的 JSON 缺少 mappings 数组');
+  }
+
+  async function callAI(payload, config) {
+    // 内容脚本的跨域 fetch 受招聘网页的 CORS 限制；真实扩展统一交给后台请求。
+    if (typeof chrome !== 'undefined' && chrome.runtime?.id && chrome.runtime?.sendMessage) {
+      const reply = await chrome.runtime.sendMessage({ type: 'ai-request', payload });
+      if (!reply?.ok) throw new Error(reply?.error || 'AI 请求失败');
+      recordUsage(reply.data);
+      return reply.data;
+    }
+    // Node 单测与无扩展上下文的本地页面测试。
+    const res = await fetch(config.endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + config.apiKey },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status + ' ' + (await res.text()).slice(0, 120));
+    const data = await res.json();
+    recordUsage(data);
+    return data;
+  }
+
+  function recordUsage(data) {
+    usage.calls += 1;
+    usage.inputTokens += Number(data?.usage?.prompt_tokens ?? data?.usage?.input_tokens) || 0;
+    usage.outputTokens += Number(data?.usage?.completion_tokens ?? data?.usage?.output_tokens) || 0;
   }
 
   /**
@@ -118,13 +145,7 @@
       payload.thinking = { type: 'disabled' };
       payload.response_format = { type: 'json_object' };
     }
-    const res = await fetch(config.endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + config.apiKey },
-      body: JSON.stringify(payload),
-    });
-    if (!res.ok) throw new Error('HTTP ' + res.status + ' ' + (await res.text()).slice(0, 120));
-    const data = await res.json();
+    const data = await callAI(payload, config);
     const content = (data.choices && data.choices[0] && data.choices[0].message ? data.choices[0].message.content : '') || '';
     const parsed = parseJsonMappings(content);
     return parsed.map((suggestion) => {
@@ -158,6 +179,7 @@
     'text', 'textarea', 'native-select', 'custom-select', 'radio', 'checkbox',
     'date-input', 'month-picker', 'date-range-picker', 'auto',
   ]);
+  const usage = { calls: 0, inputTokens: 0, outputTokens: 0 };
 
   /** 将网页结构和简历内容一次性交给模型,返回受限的高层操作计划。 */
   async function planForm(page, profile, config) {
@@ -170,7 +192,7 @@
         { role: 'system', content: SMART_SYSTEM_PROMPT },
         {
           role: 'user',
-          content: JSON.stringify({ page, profile: projectProfile(profile, config.includeSensitive === true), paths: PATH_CATALOG.map(([p, zh]) => p + ' ' + zh) }),
+          content: JSON.stringify({ page, profile: projectProfile(profile, config.includeSensitive !== false), paths: PATH_CATALOG.map(([p, zh]) => p + ' ' + zh) }),
         },
       ],
     };
@@ -178,13 +200,7 @@
       payload.thinking = { type: 'disabled' };
       payload.response_format = { type: 'json_object' };
     }
-    const res = await fetch(config.endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + config.apiKey },
-      body: JSON.stringify(payload),
-    });
-    if (!res.ok) throw new Error('HTTP ' + res.status + ' ' + (await res.text()).slice(0, 120));
-    const data = await res.json();
+    const data = await callAI(payload, config);
     const content = (data.choices && data.choices[0] && data.choices[0].message ? data.choices[0].message.content : '') || '';
     const actions = parseJsonMappings(content);
     const targets = new Map();
@@ -194,7 +210,7 @@
         for (const f of row.fields || []) targets.set(String(f.targetId), { ...f, tableId: table.tableId, array: table.array, rowIndex: row.rowIndex });
       }
     }
-    return actions.map((action) => {
+    const candidates = actions.map((action) => {
       const targetId = String(action?.targetId || '');
       const target = targets.get(targetId);
       const path = String(action?.profilePath ?? action?.path ?? '');
@@ -203,10 +219,67 @@
       const match = path.match(/^(education|internships|employment|projects|awards)\[(\d+)\]\.([A-Za-z][\w]*)$/);
       if (!isCatalogPath(path)) return null;
       if (target.tableId) {
-        if (!match || match[1] !== tableArrayName(target.array) || Number(match[2]) !== Number(target.rowIndex)) return null;
+        if (!match || match[1] !== tableArrayName(target.array)) return null;
+        if (!Array.isArray(profile?.[match[1]]) || !profile[match[1]][Number(match[2])]) return null;
       }
-      return { targetId, profilePath: path, operation, confidence: action.confidence };
+      return { targetId, profilePath: path, operation, confidence: action.confidence,
+        tableId: target.tableId, rowIndex: target.rowIndex, recordIndex: match ? Number(match[2]) : null };
     }).filter(Boolean);
+    // 同一网页行只能取自一条简历记录；不同网页行不能共享同一记录。
+    // 模型给出冲突计划时保守拒绝冲突行，避免公司、内容和日期串行。
+    const rowRecords = new Map();
+    for (const action of candidates) {
+      if (!action.tableId) continue;
+      const rowKey = `${action.tableId}:${action.rowIndex}`;
+      if (!rowRecords.has(rowKey)) rowRecords.set(rowKey, new Set());
+      rowRecords.get(rowKey).add(action.recordIndex);
+    }
+    const acceptedRows = new Map(Array.from(rowRecords).filter(([, records]) => records.size === 1)
+      .map(([rowKey, records]) => [rowKey, [...records][0]]));
+    const recordRows = new Map();
+    for (const [rowKey, index] of acceptedRows) {
+      const tableId = rowKey.slice(0, rowKey.lastIndexOf(':'));
+      const key = `${tableId}:${index}`;
+      recordRows.set(key, (recordRows.get(key) || 0) + 1);
+    }
+    return candidates.filter((action) => {
+      if (!action.tableId) return true;
+      const rowKey = `${action.tableId}:${action.rowIndex}`;
+      return acceptedRows.get(rowKey) === action.recordIndex && recordRows.get(`${action.tableId}:${action.recordIndex}`) === 1;
+    }).map(({ tableId, rowIndex, recordIndex, ...action }) => action);
+  }
+
+  const REPAIR_PROMPT =
+    '你是网页表单操作诊断器。给定目标字段、期望值、局部 HTML、可操作节点和历史动作，选择下一步唯一动作。' +
+    '只操作目标字段或其弹出面板，不能提交、删除、跳转或执行任意代码。若值已正确返回 done；无法判断返回 manual。' +
+    '日期选择可以逐步打开面板、选年、选月、确认，每一步后会收到新页面状态。' +
+    '只输出 JSON 对象，例如 {"type":"click","nodeId":"n2"}；允许 type 为 click、type、scroll、key、done、manual。' +
+    'type 动作还需 value；scroll 动作还需 direction(up/down)；key 仅允许 Enter、Escape、Tab。';
+
+  /** 只让模型选受约束的 UI 动作；目标节点必须来自本轮观察。 */
+  async function nextAction(observation, desired, trace, config) {
+    if (!config || !config.endpoint || !config.apiKey) throw new Error('AI 未配置');
+    const payload = {
+      model: config.model || 'glm-4-flash', temperature: 0,
+      messages: [
+        { role: 'system', content: REPAIR_PROMPT },
+        { role: 'user', content: JSON.stringify({ desired, observation: observation.page, trace: (trace || []).slice(-6) }) },
+      ],
+    };
+    if (config.provider === 'deepseek' || /api\.deepseek\.com/i.test(config.endpoint)) {
+      payload.thinking = { type: 'disabled' };
+      payload.response_format = { type: 'json_object' };
+    }
+    const data = await callAI(payload, config);
+    const raw = String(data?.choices?.[0]?.message?.content || '').replace(/```json|```/gi, '').trim();
+    const action = JSON.parse(raw);
+    const type = String(action?.type || '');
+    if (!['click', 'type', 'scroll', 'key', 'done', 'manual'].includes(type)) throw new Error('AI 返回了不允许的动作');
+    if (['click', 'type', 'scroll', 'key'].includes(type) && !observation.nodes.has(String(action.nodeId))) throw new Error('AI 选择了不存在的节点');
+    if (type === 'type' && typeof action.value !== 'string') throw new Error('AI 输入值无效');
+    if (type === 'scroll' && !['up', 'down'].includes(action.direction)) throw new Error('AI 滚动方向无效');
+    if (type === 'key' && !['Enter', 'Escape', 'Tab'].includes(action.key)) throw new Error('AI 按键无效');
+    return { type, nodeId: action.nodeId == null ? undefined : String(action.nodeId), value: action.value, direction: action.direction, key: action.key };
   }
 
   /** 按整张经历表规划字段路由,只接收结构元数据,不接收档案值或页面输入值。 */
@@ -224,13 +297,7 @@
       payload.thinking = { type: 'disabled' };
       payload.response_format = { type: 'json_object' };
     }
-    const res = await fetch(config.endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + config.apiKey },
-      body: JSON.stringify(payload),
-    });
-    if (!res.ok) throw new Error('HTTP ' + res.status + ' ' + (await res.text()).slice(0, 120));
-    const data = await res.json();
+    const data = await callAI(payload, config);
     const content = (data.choices && data.choices[0] && data.choices[0].message ? data.choices[0].message.content : '') || '';
     const parsed = parseJsonMappings(content);
     const knownTables = new Map((tables || []).map((t) => [String(t.tableId), t]));
@@ -253,7 +320,7 @@
     }).filter(Boolean);
   }
 
-  const AIMapping = { mapFields, planTables, planForm, PATH_CATALOG, SYSTEM_PROMPT, TABLE_SYSTEM_PROMPT, SMART_SYSTEM_PROMPT };
+  const AIMapping = { mapFields, planTables, planForm, nextAction, getUsage: () => ({ ...usage }), PATH_CATALOG, SYSTEM_PROMPT, TABLE_SYSTEM_PROMPT, SMART_SYSTEM_PROMPT };
   root.AIMapping = AIMapping;
   if (typeof module !== 'undefined' && module.exports) module.exports = AIMapping;
 })(typeof globalThis !== 'undefined' ? globalThis : this);
