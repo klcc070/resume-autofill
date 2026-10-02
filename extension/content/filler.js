@@ -510,6 +510,21 @@
     }
   }
 
+  /** 经历数组双向回退:表单只有工作经历时用实习数据填,反之亦然(合合信息等站点无实习区块) */
+  function withExperienceFallback(profile, scanResult) {
+    if (!profile || !scanResult) return profile;
+    const sig = (scanResult.fields || []).map((x) => (x.path || '') + '|' + (x.paths || []).join('|')).join(';') + ';' + (scanResult.rows || []).map((r) => r.array).join(';');
+    const emp = Array.isArray(profile.employment) ? profile.employment : [];
+    const int = Array.isArray(profile.internships) ? profile.internships : [];
+    if (sig.includes('employment[') && emp.length === 0 && int.length > 0) {
+      return { ...profile, employment: int.map((x) => ({ ...x })) };
+    }
+    if (sig.includes('internships[') && int.length === 0 && emp.length > 0) {
+      return { ...profile, internships: emp.map((x) => ({ ...x })) };
+    }
+    return profile;
+  }
+
   /**
    * 执行填充(异步:自定义组件需要等待面板)。
    * @param {object} scanResult Scanner.scan() 的结果
@@ -519,6 +534,7 @@
    */
   async function fill(scanResult, profile, opts = {}) {
     bindEducationRecords(scanResult, profile);
+    profile = withExperienceFallback(profile, scanResult);
     rebindEducationByDegree(scanResult, profile);
     try {
       const host = typeof location !== 'undefined' ? location.hostname : '';
@@ -642,5 +658,5 @@
     return { report, addedRows };
   }
 
-  globalThis.Filler = { fill, resolveValue, setNativeValue, computeAge, fillElement, bindEducationRecords };
+  globalThis.Filler = { fill, resolveValue, withExperienceFallback, setNativeValue, computeAge, fillElement, bindEducationRecords };
 })();
