@@ -513,13 +513,18 @@
   /** 经历数组双向回退:表单只有工作经历时用实习数据填,反之亦然(合合信息等站点无实习区块) */
   function withExperienceFallback(profile, scanResult) {
     if (!profile || !scanResult) return profile;
-    const sig = (scanResult.fields || []).map((x) => (x.path || '') + '|' + (x.paths || []).join('|')).join(';') + ';' + (scanResult.rows || []).map((r) => r.array).join(';');
+    // 区块判据:同数组路径 ≥3 个字段(成套)或存在行容器;零星误分配字段不算区块,
+    // 避免个别词典兜底误落 internships 时错误关闭工作经历回退
+    const paths = (scanResult.fields || []).flatMap((x) => [x.path, ...(x.paths || [])]);
+    const count = (pre) => paths.filter((p) => String(p || '').startsWith(pre)).length;
+    const empBlock = count('employment[') >= 3 || (scanResult.rows || []).some((r) => r.array === 'employment');
+    const intBlock = count('internships[') >= 3 || (scanResult.rows || []).some((r) => r.array === 'internship');
     const emp = Array.isArray(profile.employment) ? profile.employment : [];
     const int = Array.isArray(profile.internships) ? profile.internships : [];
-    if (sig.includes('employment[') && emp.length === 0 && int.length > 0) {
+    if (empBlock && !intBlock && emp.length === 0 && int.length > 0) {
       return { ...profile, employment: int.map((x) => ({ ...x })) };
     }
-    if (sig.includes('internships[') && int.length === 0 && emp.length > 0) {
+    if (intBlock && !empBlock && int.length === 0 && emp.length > 0) {
       return { ...profile, internships: emp.map((x) => ({ ...x })) };
     }
     return profile;

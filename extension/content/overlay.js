@@ -313,6 +313,7 @@
    * 扫描并渲染预览。返回给 popup 的 JSON 摘要(不含 DOM 引用)。
    */
   function renderPreview(scan, profile) {
+    profile = globalThis.Filler.withExperienceFallback(profile, scan);
     globalThis.Filler.bindEducationRecords(scan, profile);
     lastProfile = profile;
     lastScan = scan;
