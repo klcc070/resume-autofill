@@ -520,6 +520,13 @@
   async function fill(scanResult, profile, opts = {}) {
     bindEducationRecords(scanResult, profile);
     rebindEducationByDegree(scanResult, profile);
+    try {
+      const host = typeof location !== 'undefined' ? location.hostname : '';
+      const learned = profile && profile.learned && profile.learned[host];
+      const cache = (globalThis.__learnedStructures ||= {});
+      if (learned) { Object.assign(cache, learned); cache.__loaded = true; }
+      else { cache.__loaded = false; }
+    } catch {}
     const report = [];
     let addedRows = 0;
 

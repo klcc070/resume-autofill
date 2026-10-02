@@ -42,7 +42,7 @@
   function readMonthRange(root) {
     const controls = getDateSelects(root);
     if (controls.length !== 2 && controls.length !== 4) return null;
-    const pairs = mokaPairSubSelects(controls).slice(0, controls.length / 2);
+    const pairs = mokaPairSubSelects(controls, globalThis.__currentFillLabel ? learnedStructure(globalThis.__currentFillLabel) : null).slice(0, controls.length / 2);
     const values = pairs.map(([yi, mi]) => {
       const year = numericText(readSelectedValue(controls[yi]));
       const month = numericText(readSelectedValue(controls[mi]));
@@ -587,7 +587,23 @@
 
   /** Moka 月份范围由四个独立 Select 组成：开始年/月、结束年/月。 */
   /** 摩卡年月子下拉通用配对:角色(年/月)按占位符与现值识别,start/end 按 x 坐标(隐藏时回退 DOM 序) */
-  function mokaPairSubSelects(unique) {
+  /** 学习到的结构提示:filler 注入的 learned[host].fields[norm(label)].structure */
+  function learnedStructure(label) {
+    try {
+      const cache = (globalThis.__learnedStructures ||= {});
+      if (cache.__loaded !== true) return null;
+      return cache[globalThis.Matcher.normalize(label || '')] || null;
+    } catch { return null; }
+  }
+
+  function mokaPairSubSelects(unique, hint) {
+    // 站点学习到的占位符序列(如 年,月,年,月):按提示配对,免几何探测
+    if (hint && Array.isArray(hint.subs) && hint.subs.filter(Boolean).length >= Math.min(4, unique.length)) {
+      const roles = hint.subs.slice(0, unique.length).map((ph) => (/年/.test(ph || '') ? 'Y' : /月/.test(ph || '') ? 'M' : '?'));
+      const yIdx = roles.map((r, i) => (r === 'Y' ? i : -1)).filter((i) => i >= 0);
+      const mIdx = roles.map((r, i) => (r === 'M' ? i : -1)).filter((i) => i >= 0);
+      if (yIdx.length >= 2 && mIdx.length >= 2) return [[yIdx[0], mIdx[0]], [yIdx[1], mIdx[1]]];
+    }
     const roles = unique.map((el) => {
       const inp = el.querySelector('input');
       const ph = (inp && inp.placeholder) || '';
@@ -623,7 +639,7 @@
   function dateParts(root) {
     const controls = getDateSelects(root);
     if (![2, 4].includes(controls.length)) return [];
-    return mokaPairSubSelects(controls).slice(0, controls.length / 2).flatMap(([y, m], side) => [
+    return mokaPairSubSelects(controls, globalThis.__currentFillLabel ? learnedStructure(globalThis.__currentFillLabel) : null).slice(0, controls.length / 2).flatMap(([y, m], side) => [
       { el: controls[y], kind: 'year', side }, { el: controls[m], kind: 'month', side },
     ]);
   }

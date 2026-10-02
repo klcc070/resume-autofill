@@ -539,6 +539,25 @@
     } catch { return ''; }
   }
 
+  /** 字段结构指纹:组件类型 + 子控件占位符序列 + 是否搜索型 */
+  function readStructure(f) {
+    const t = f && (f.trigger || f.el);
+    if (!t || !t.querySelector) return null;
+    try {
+      const type = f.type || 'text';
+      const structure = { component: type, subs: [], searchable: false };
+      const subs = Array.from(t.querySelectorAll('[class*="sd-Select-container-"], [class*="select__selector"], [class*="picker"], select')).slice(0, 8);
+      for (const s of subs) {
+        const inp = s.querySelector('input');
+        const ph = (inp && inp.placeholder) || '';
+        structure.subs.push(ph || (s.tagName === 'SELECT' ? 'native-select' : ''));
+      }
+      const ownInput = t.matches('input') ? t : t.querySelector('input');
+      structure.searchable = !!(ownInput && !ownInput.readOnly && !structure.subs.filter(Boolean).length && !/date|picker/i.test(String(type)));
+      return structure;
+    } catch { return null; }
+  }
+
   /** 档案叶子展开:path → value(含 qa) */
   function flattenProfile(profile) {
     const out = [];
@@ -587,7 +606,7 @@
       const curPath = f.path || (f.paths && f.paths[0]);
       if (curPath) {
         const hit = flat.find((x) => eq(x.value, ui) && x.path === curPath);
-        if (hit) { learned.push({ label, path: curPath, value: ui, source: 'confirmed' }); continue; }
+        if (hit) { learned.push({ label, path: curPath, value: ui, source: 'confirmed', structure: readStructure(f) }); continue; }
       }
       // 2) 值匹配档案:唯一命中则学;类型可分辨时按类型过滤
       let cands = flat.filter((x) => eq(x.value, ui));
@@ -596,7 +615,7 @@
         const filtered = cands.filter((x) => (isDateField ? /(Date|date)$/.test(x.path) : true));
         if (filtered.length) cands = filtered;
       }
-      if (cands.length === 1) { learned.push({ label, path: cands[0].path, value: ui, source: 'value-match' }); continue; }
+      if (cands.length === 1) { learned.push({ label, path: cands[0].path, value: ui, source: 'value-match', structure: readStructure(f) }); continue; }
       // 3) 待 AI 推断
       pending.push(f);
     }
@@ -612,7 +631,8 @@
           for (const a of actions) {
             const t = byId.get(String(a && a.targetId));
             const p = String((a && (a.profilePath || a.path)) || '');
-            if (t && p) learned.push({ label: t.label, path: p, value: t.userValue, source: 'ai' });
+            const srcF = pending[Number(String(a.targetId || '').slice(1))] || f;
+            if (t && p) learned.push({ label: t.label, path: p, value: t.userValue, source: 'ai', structure: readStructure(srcF) });
           }
         } catch (e) { /* AI 失败不影响规则学习结果 */ }
       }
@@ -630,7 +650,29 @@
       if (!key) continue;
       siteMap[key] = l.path;
       siteLearned[key] = { path: l.path, value: String(l.value).slice(0, 200), source: l.source, at: new Date().toISOString().slice(0, 10) };
+      if (l.structure) siteLearned[key].structure = l.structure;
     }
+    // 表结构 schema:区块顺序 + 每区块字段清单与行数(按学到的路径数组归类)
+    const schema = { sections: [], learnedAt: new Date().toISOString().slice(0, 10) };
+    const byArr = new Map();
+    for (const l of learned) {
+      const m = String(l.path || '').match(/^(education|internships|employment|projects|awards)\[(\d+)\]/);
+      if (m) {
+        const k = m[1];
+        if (!byArr.has(k)) byArr.set(k, { array: k, rows: new Set(), fields: [] });
+        const sec = byArr.get(k);
+        sec.rows.add(Number(m[2]));
+        if (!sec.fields.includes(l.label)) sec.fields.push(l.label);
+      } else if (l.path && !/^personal\.|^derived\./.test(l.path)) {
+        if (!byArr.has('_global')) byArr.set('_global', { array: '_global', rows: new Set(), fields: [] });
+        byArr.get('_global').fields.push(l.label);
+      }
+    }
+    for (const sec of byArr.values()) {
+      if (sec.array === '_global') schema.sections.unshift({ array: 'global', fields: sec.fields });
+      else schema.sections.push({ array: sec.array, rowCount: sec.rows.size, fields: sec.fields });
+    }
+    if (schema.sections.length) siteLearned.__schema = schema;
     maps[host] = siteMap;
     await chrome.storage.local.set({ siteMappings: maps, profile: prof });
     lastProfile = prof;
