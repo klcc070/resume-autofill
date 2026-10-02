@@ -32,7 +32,7 @@
     for (let node = el; node && node !== document.body; node = node.parentElement) {
       const tokens = typeof node.className === 'string' ? node.className.split(/\s+/) : [];
       if (
-        tokens.some((t) => /^(?:ant|el|atsx)?-?form-item$/i.test(t)) ||
+        tokens.some((t) => /^(?:ant|el|atsx|layui)?-?form-item$/i.test(t)) ||
         tokens.includes('form-group') || tokens.includes('field') || tokens.includes('question')
       ) return node;
     }
@@ -57,7 +57,7 @@
     if (!m) return null;
     const array = canonicalArray(m[1]);
     if (!array) return null;
-    return { array, index: Number(m[2]), leaf: String(m[3] || '').replace(/^[._-]+/, ''), raw: m[0].replace(/^[^A-Za-z]+/, '') };
+    return { array, index: Number(m[2]), leaf: String(m[3] || '').replace(/^\[([^\]]+)\]$/, '$1').replace(/^[._-]+/, ''), raw: m[0].replace(/^[^A-Za-z]+/, '') };
   }
 
   function semanticIdentity(el) {
@@ -74,6 +74,10 @@
     const item = formItemContainer(el);
     if (item) {
       for (const label of item.querySelectorAll('label[for]')) values.push(label.htmlFor);
+      // 单一可见编辑器与隐藏提交字段/原生 select 是同一个控件，不跨字段猜身份。
+      const editors = Array.from(item.querySelectorAll(FILLABLE)).filter(isVisible);
+      const backing = Array.from(item.querySelectorAll('input[type="hidden"][name], select[name]')).filter((node) => !isVisible(node));
+      if (editors.length === 1 && editors[0] === el && backing.length === 1) values.push(backing[0].name);
     }
     for (const value of values) {
       const identity = parseSemanticIdentity(value);
@@ -85,7 +89,18 @@
   function remapPath(path, identity) {
     if (!path || !identity) return path;
     const m = String(path).match(/^(education|internships|employment|projects|awards)\[\d+\]\.(.+)$/);
-    return m ? `${identity.array}[${identity.index}].${m[2]}` : path;
+    const aliases = { start: 'startDate', end: 'endDate', startdate: 'startDate', enddate: 'endDate',
+      periodinputbegin: 'startDate', periodinputend: 'endDate' };
+    const leaf = aliases[identity.leaf.toLowerCase()] || m?.[2];
+    return m ? `${identity.array}[${identity.index}].${leaf}` : path;
+  }
+
+  function linkedField(el) {
+    const item = formItemContainer(el);
+    if (!item || !el.matches('input:not([type="hidden"])')) return null;
+    const editors = Array.from(item.querySelectorAll(FILLABLE)).filter(isVisible);
+    const backing = Array.from(item.querySelectorAll('input[type="hidden"][name], select[name]')).filter((node) => !isVisible(node));
+    return editors.length === 1 && editors[0] === el && backing.length === 1 ? backing[0] : null;
   }
 
   function sectionFromText(text) {
@@ -328,6 +343,24 @@
   function rowContainer(el) {
     const named = el.closest('tr') || el.closest('[data-row], .experience-row, .row-item');
     if (named) return named;
+    // 重复卡片按同一数组/下标的字段身份识别，不能把整张表或网格列当成一条记录。
+    const identity = semanticIdentity(el);
+    if (identity?.array === 'education') {
+      for (let node = formItemContainer(el)?.parentElement; node && node !== document.body; node = node.parentElement) {
+        const ids = Array.from(node.querySelectorAll('[name], [data-cy]')).map((child) =>
+          parseSemanticIdentity(child.getAttribute('name') || child.getAttribute('data-cy'))).filter(Boolean);
+        const keys = new Set(ids.map((id) => `${id.array}:${id.index}`));
+        const leaves = new Set(ids.map((id) => id.leaf));
+        if (keys.size > 1) break;
+        const siblingRecord = node.parentElement && Array.from(node.parentElement.children).some((sibling) =>
+          sibling !== node && Array.from(sibling.querySelectorAll('[name], [data-cy]')).some((child) => {
+            const id = parseSemanticIdentity(child.getAttribute('name') || child.getAttribute('data-cy'));
+            return id && id.array === identity.array && id.index !== identity.index;
+          }));
+        const pairedEditors = Array.from(node.querySelectorAll('input:not([type="hidden"])')).some((input) => linkedField(input));
+        if (leaves.size >= 2 && siblingRecord && pairedEditors) return node;
+      }
+    }
     const multi = el.closest('[class*="apply-fields-"][class*="multi-"]');
     if (multi && ['education', 'internships', 'employment', 'projects', 'awards'].includes(sectionOfElement(el))) return multi;
     // 恒生 Phoenix 表单：每条经历是一个 .form 实例，而非带 row/index 的节点。
@@ -420,11 +453,15 @@
         handleGroup(el, same, results);
         continue;
       }
+      const label = extractLabel(el);
+      if (/专业大类|专业类别|专业分类/.test(label) || semanticIdentity(el)?.leaf === 'major_category') {
+        results.unmatched.push({ kind: 'field', el, label, excluded: true, reason: '专业分类需要单独选择，不使用专业名称代填' });
+        continue;
+      }
       const container = rowContainer(el);
       const rowInfo = container && rowMap.get(container);
       if (rowInfo) {
         const index = containerIndex.get(container) || 0;
-        const label = extractLabel(el);
         const identity = semanticIdentity(el);
         const m = Matcher.matchField(label, { array: identity ? identity.array : rowInfo.array, index: identity ? identity.index : index });
         if (m) {
@@ -434,7 +471,8 @@
             results.rows.push(row);
           }
           const section = identity ? identity.array : rowInfo.array;
-          row.items.push({ el, label, path: remapPath(m.path, identity), type: m.type, score: m.score, identity, section, fingerprint: fieldFingerprint(el, label, identity, section, 'row-field', index) });
+          row.items.push({ el, label, path: remapPath(m.path, identity), type: m.type, score: m.score, identity, section,
+            rowContainer: container, rowIndex: index, fingerprint: fieldFingerprint(el, label, identity, section, 'row-field', index) });
         } else {
           const section = identity ? identity.array : rowInfo.array;
           results.unmatched.push({
@@ -445,7 +483,6 @@
         }
         continue;
       }
-      const label = extractLabel(el);
       const m = Matcher.matchField(label, null);
       if (m) {
         const identity = semanticIdentity(el);
@@ -777,6 +814,13 @@
     }
   }
   results.fields = results.fields.filter((x) => !x.__dropFromFields);
+  for (const entry of [...results.fields, ...results.rows.flatMap((row) => row.items)]) {
+    entry.linkedField = linkedField(entry.el);
+    // 日级只读输入不能用年月字符串冒充完整日期；不擅自补 1 日、月末或今天。
+    if (/\.(startDate|endDate)$/.test(entry.path || '') && entry.el.readOnly &&
+        Array.from(formItemContainer(entry.el)?.querySelectorAll('input') || [entry.el]).some((input) =>
+          /^\d{4}-\d{2}-\d{2}$/.test(input.value || ''))) entry.type = Matcher.T.DATE;
+  }
   return results;
   }
 

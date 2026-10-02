@@ -63,12 +63,29 @@
         <div class="bd" id="bd"></div>
         <div class="ft">
           <button class="btn primary" id="btn-fill">开始填充</button>
+          <button class="btn ghost" id="btn-learn" style="flex:0 0 auto;padding:8px 14px" title="把当前表单的最终填写结果学习进档案">学习此表</button>
           <button class="btn ghost" id="btn-hide">关闭</button>
         </div>
         <div class="note" style="padding:0 16px 12px">仅填充不提交:请人工核对后自行点击网站提交按钮。</div>
       </div>`;
     shadow.getElementById('btn-close').addEventListener('click', removePanel);
     shadow.getElementById('btn-hide').addEventListener('click', removePanel);
+    shadow.getElementById('btn-learn').addEventListener('click', async () => {
+      const btn = shadow.getElementById('btn-learn');
+      btn.disabled = true;
+      btn.textContent = '学习中…';
+      try {
+        const r = await ResumeAutofill.learn();
+        btn.textContent = r && r.error ? ('学习失败:' + r.error) : '学习此表';
+        if (r && !r.error && typeof r.learned === 'number') {
+          btn.textContent = '学习此表(+' + r.learned + ')';
+          renderPreview(lastScan, lastProfile);
+        }
+      } catch (e) {
+        btn.textContent = '学习失败';
+      }
+      btn.disabled = false;
+    });
     shadow.getElementById('btn-fill').addEventListener('click', async () => {
       const r = await ResumeAutofill.fill();
       renderReport(r);
@@ -138,11 +155,12 @@
       role: attr('role') || undefined,
       componentType: source.type || source.kind || undefined,
       existingPath: existingPath || undefined,
+      recordIndex: source.recordIndex,
       semanticName: source.identity?.leaf || undefined,
       fingerprint: source.fingerprint || undefined,
       section: source.section || undefined,
       itemIndex: source.itemIndex ?? source.identity?.index ?? undefined,
-      currentValue: target && 'value' in target ? String(target.value || '') : String(target?.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 180),
+      currentValue: globalThis.Components?.readControlValues(target).join(' ~ ') || (target && 'value' in target ? String(target.value || '') : String(target?.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 180)),
       contextText: String(context?.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 320),
       html: String(target?.parentElement?.outerHTML || target?.outerHTML || '').slice(0, 1200),
       options: optionRoot
@@ -193,6 +211,7 @@
       for (const item of row.items || []) add(table, rowIndex, item, item.label, item.path, null, 'row');
     }
     for (const source of scan.unmatched || []) {
+      if (source.excluded) continue;
       if (!source.rowContainer) continue;
       const row = (scan.rows || []).find((r) => r.container === source.rowContainer);
       if (!row) continue;
@@ -236,6 +255,7 @@
       } else addField(source, source.label, source.path, null);
     }
     for (const source of scan.unmatched || []) {
+      if (source.excluded) continue;
       if (source.rowContainer) continue;
       addField(source, source.label, source.path, null);
     }
@@ -256,6 +276,7 @@
       const siteMap = (st.siteMappings || {})[host] || {};
       for (let i = scan.unmatched.length - 1; i >= 0; i--) {
         const u = scan.unmatched[i];
+        if (u.excluded) continue;
         const legacyKey = globalThis.Matcher.normalize(u.label || '');
         const key = u.fingerprint || legacyKey;
         const p = siteMap[key] || siteMap[legacyKey];
@@ -292,6 +313,7 @@
    * 扫描并渲染预览。返回给 popup 的 JSON 摘要(不含 DOM 引用)。
    */
   function renderPreview(scan, profile) {
+    globalThis.Filler.bindEducationRecords(scan, profile);
     lastProfile = profile;
     lastScan = scan;
     lastReport = null;
@@ -505,9 +527,120 @@
     }
   }
 
+
+  /** 读取字段当前 UI 最终值(input 值或展示文本) */
+  function readUIValue(f) {
+    const t = f && (f.trigger || f.el);
+    if (!t || !t.querySelector) return '';
+    try {
+      const inp = t.querySelector('input, textarea');
+      const disp = t.querySelector('[class*="display-value"], [class*="selection-item"], [class*="selected-item"]');
+      return String(((inp && (inp.value || inp.placeholder)) || (disp && disp.textContent) || '')).trim();
+    } catch { return ''; }
+  }
+
+  /** 档案叶子展开:path → value(含 qa) */
+  function flattenProfile(profile) {
+    const out = [];
+    const walk = (obj, prefix) => {
+      if (obj == null || typeof obj !== 'object') return;
+      for (const [k, v] of Object.entries(obj)) {
+        if (k.startsWith('_')) continue;
+        const p = prefix ? prefix + '.' + k : k;
+        if (v && typeof v === 'object' && !Array.isArray(v)) walk(v, p);
+        else if (Array.isArray(v)) v.forEach((x, i) => x && typeof x === 'object' ? walk(x, p + '[' + i + ']') : out.push({ path: p + '[' + i + ']', value: x }));
+        else if (v !== '' && v != null) out.push({ path: p, value: v });
+      }
+    };
+    walk(profile, '');
+    return out;
+  }
+
+  /**
+   * 学习当前表单:以字段最终值为准,推断 label→档案路径,双写
+   * siteMappings(即时生效) 与 profile.learned(档案新字段,导出随 JSON 走)。
+   * 规则学习:值能唯一对上档案;AI 学习(可选):对不上的字段带值调 planForm。
+   */
+  async function learnFromFilledForm() {
+    if (!lastProfile) return { error: '请先扫描' };
+    const host = location.hostname;
+    const scan = globalThis.Scanner.scan();
+    const flat = flattenProfile(lastProfile);
+    const norm = (s) => globalThis.Matcher.normalize(String(s == null ? '' : s));
+    const eq = (a, b) => {
+      const na = norm(a), nb = norm(b);
+      if (!na || !nb) return false;
+      if (na === nb) return true;
+      // 日期等价:2021-09 / 2021/9 / 2021年9月 / 2021-09-01(月粒度)
+      const da = String(a).match(/^(\d{4})[-\/年](\d{1,2})/), db = String(b).match(/^(\d{4})[-\/年](\d{1,2})/);
+      if (da && db) return da[1] === db[1] && Number(da[2]) === Number(db[2]);
+      return false;
+    };
+    const learned = [];
+    const pending = [];
+    for (const f of scan.fields) {
+      const ui = readUIValue(f);
+      if (!ui || ui.length > 300) continue;
+      const label = String(f.label || '').trim();
+      if (!label) continue;
+      // 1) 该字段已有扫描路径且与现值一致 → 确认学习
+      const curPath = f.path || (f.paths && f.paths[0]);
+      if (curPath) {
+        const hit = flat.find((x) => eq(x.value, ui) && x.path === curPath);
+        if (hit) { learned.push({ label, path: curPath, value: ui, source: 'confirmed' }); continue; }
+      }
+      // 2) 值匹配档案:唯一命中则学;类型可分辨时按类型过滤
+      let cands = flat.filter((x) => eq(x.value, ui));
+      if (cands.length > 1) {
+        const isDateField = f.type === 'custom-picker' || /时间|日期/.test(label);
+        const filtered = cands.filter((x) => (isDateField ? /(Date|date)$/.test(x.path) : true));
+        if (filtered.length) cands = filtered;
+      }
+      if (cands.length === 1) { learned.push({ label, path: cands[0].path, value: ui, source: 'value-match' }); continue; }
+      // 3) 待 AI 推断
+      pending.push(f);
+    }
+    // AI 学习(未配置则跳过)
+    if (pending.length) {
+      let cfg = null;
+      try { cfg = (await chrome.storage.local.get('aiConfig')).aiConfig; } catch {}
+      if (cfg && cfg.endpoint && cfg.apiKey) {
+        try {
+          const page = { fields: pending.map((f, i) => ({ targetId: 'L' + i, label: f.label, placeholder: '', type: f.type, userValue: readUIValue(f) })), tables: [] };
+          const actions = await globalThis.AIMapping.planForm(page, lastProfile, cfg);
+          const byId = new Map(page.fields.map((x) => [String(x.targetId), x]));
+          for (const a of actions) {
+            const t = byId.get(String(a && a.targetId));
+            const p = String((a && (a.profilePath || a.path)) || '');
+            if (t && p) learned.push({ label: t.label, path: p, value: t.userValue, source: 'ai' });
+          }
+        } catch (e) { /* AI 失败不影响规则学习结果 */ }
+      }
+    }
+    if (!learned.length) return { learned: 0, pending: pending.length };
+    // 双写:siteMappings + 档案对象新字段 learned
+    const st = await chrome.storage.local.get(['siteMappings', 'profile']);
+    const maps = st.siteMappings || {};
+    const siteMap = maps[host] || (maps[host] = {});
+    let prof = st.profile || lastProfile;
+    prof.learned = prof.learned || {};
+    const siteLearned = prof.learned[host] || (prof.learned[host] = {});
+    for (const l of learned) {
+      const key = norm(l.label);
+      if (!key) continue;
+      siteMap[key] = l.path;
+      siteLearned[key] = { path: l.path, value: String(l.value).slice(0, 200), source: l.source, at: new Date().toISOString().slice(0, 10) };
+    }
+    maps[host] = siteMap;
+    await chrome.storage.local.set({ siteMappings: maps, profile: prof });
+    lastProfile = prof;
+    return { learned: learned.length, pending: pending.length };
+  }
+
   const ResumeAutofill = {
     preview: previewWithMappings,
     fill,
+    learn: learnFromFilledForm,
     getReport: () => lastReport,
     /** AI 智能规划:把简历内容与整页结构一起分析,返回受限的高层操作计划。 */
     async aiSmartPlan() {
@@ -646,7 +779,7 @@
     /** AI 兜底:把未匹配字段的描述发给大模型换回映射建议,自动应用非空建议并写入站点记忆 */
     async aiMapUnmatched() {
       if (!lastScan || !lastProfile) return { error: '请先扫描' };
-      const un = lastScan.unmatched.filter((u) => u.el);
+      const un = lastScan.unmatched.filter((u) => u.el && !u.excluded);
       if (!un.length) return { applied: 0 };
       let cfg = null;
       try {

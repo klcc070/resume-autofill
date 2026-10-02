@@ -99,7 +99,7 @@
     ],
     award: [
       { path: 'awards[{i}].name', synonyms: ['奖项', '奖项名称', '获奖名称', '奖励名称', 'award', 'awardname'], type: T.TEXT },
-      { path: 'awards[{i}].date', synonyms: ['获奖时间', '获奖日期', '奖励时间', '授予时间', 'awarddate', 'awardtime'], type: T.MONTH },
+      { path: 'awards[{i}].date', synonyms: ['获奖时间', '获奖日期', '奖项时间', '奖励时间', '授予时间', 'awarddate', 'awardtime'], type: T.MONTH },
       { path: 'awards[{i}].level', synonyms: ['获奖级别', '奖励级别', '奖项级别', '级别', 'awardlevel', 'level'], type: T.SELECT },
       { path: 'awards[{i}].description', synonyms: ['奖项描述', '获奖描述', '奖励描述', '奖项说明', '获奖情况', 'description'], type: T.TEXTAREA },
     ],

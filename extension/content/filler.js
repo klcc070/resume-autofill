@@ -314,6 +314,7 @@
 
   /** 交互完成不等于 React 接受了值；读回目标控件，必要时让 AI 局部修复。 */
   async function verifiedEntry(source, result, desired, opts = {}) {
+    if (source.linkedField && !['filled', 'kept'].includes(result.status)) return reportEntry({ ...source, ...result });
     if (!globalThis.FillAgent || desired == null || desired === '' || /缺少具体日/.test(result.reason || '') ||
         !['filled', 'kept', 'kept-mismatch', 'no-option', 'need-manual'].includes(result.status)) {
       return reportEntry({ ...source, ...result });
@@ -346,9 +347,107 @@
   function readDegreeValue(field) {
     const t = field && (field.trigger || field.el);
     if (!t || !t.querySelector) return '';
+    if (field.linkedField?.tagName === 'SELECT') return field.linkedField.selectedOptions[0]?.textContent.trim() || '';
+    if (t.matches('select')) return t.selectedOptions[0]?.textContent.trim() || '';
+    if (t.matches('input, textarea')) return String(t.value || '').trim();
     const inp = t.querySelector('input');
     const disp = t.querySelector('[class*="display-value"], [class*="selection-item"], [class*="selected"]');
     return String(((inp && inp.value) || (disp && disp.textContent) || '')).trim();
+  }
+
+  /** 卡片身份在写入任何字段前冻结；模型部分规划也不能让剩余字段回到 DOM 下标。 */
+  function bindEducationRecords(scan, profile) {
+    const list = profile.education || [];
+    const rows = (scan.rows || []).filter((row) => row.array === 'education');
+    const proposals = [];
+    for (const row of rows) {
+      const members = [...row.items, ...(scan.fields || []).filter((f) => f.rowContainer === row.container),
+        ...(scan.groups || []).filter((g) => g.els.some((el) => row.container.contains(el)))];
+      const degree = members.filter((f) => /\.degree$/.test(f.path || '')).map(readDegreeValue)
+        .find((value) => value && !/请选择|^(选择|学历|please select|select)$/i.test(value));
+      const schoolField = members.find((f) => /\.school$/.test(f.path || ''));
+      const school = schoolField && String(schoolField.el.value || '').trim();
+      const hits = list.map((entry, i) => ({ entry, i })).filter(({ entry }) => degree &&
+        Matcher.optionScore(entry.degree || '', degree) > 0);
+      let index;
+      if (hits.length === 1) index = hits[0].i;
+      else {
+        const schoolHits = list.map((entry, i) => ({ entry, i })).filter(({ entry }) => school &&
+          Matcher.normalize(entry.school || '') === Matcher.normalize(school) &&
+          (!degree || Matcher.optionScore(entry.degree || '', degree) > 0));
+        if (schoolHits.length === 1) index = schoolHits[0].i;
+      }
+      if (index == null && Number.isInteger(row.recordIndex)) index = row.recordIndex;
+      if (index == null && scan.__aiPlanned) {
+        const indexes = new Set(members.flatMap((f) => [f.path, ...(f.paths || [])]).map((p) =>
+          String(p || '').match(/^education\[(\d+)\]/)?.[1]).filter((i) => i != null).map(Number));
+        if (indexes.size === 1) index = [...indexes][0];
+      }
+      proposals.push({ row, members, index, degree, school });
+    }
+    const used = new Set(proposals.map((p) => p.index).filter((i) => i != null));
+    for (const p of proposals) {
+      if (p.index == null && !p.degree && !p.school) {
+        p.index = list.findIndex((_, i) => !used.has(i));
+        if (p.index >= 0) used.add(p.index);
+      }
+    }
+    for (const p of proposals) {
+      const { row, members, index } = p;
+      const duplicate = proposals.filter((other) => other.index === index).length > 1;
+      row.bindingError = index == null || index < 0 || !list[index] || duplicate ? '教育卡片无法唯一绑定档案，请核对学校和学历' : null;
+      if (row.bindingError) { members.forEach((f) => { f.bindingError = row.bindingError; }); continue; }
+      row.recordIndex = index;
+      for (const f of members) {
+        if (f.path) f.path = f.path.replace(/^education\[\d+\]/, `education[${index}]`);
+        if (f.paths) f.paths = f.paths.map((path) => path?.replace(/^education\[\d+\]/, `education[${index}]`));
+        f.recordIndex = index; f.bindingError = null;
+      }
+    }
+    return rows;
+  }
+
+  async function fillLinkedField(source, value) {
+    const backing = source.linkedField;
+    if (!backing) return fillElement(source.el, value, plannedType(source));
+    if (value == null || value === '') return { status: 'no-value' };
+    const input = source.el;
+    const root = backing.closest('[class*="form-item"]') || backing.parentElement;
+    if (backing.tagName === 'SELECT') {
+      const option = pickOption(Array.from(backing.options), value);
+      if (!option || option.disabled) return { status: 'no-option' };
+      if (backing.value === option.value && looseEqual(input.value, option.textContent.trim())) return { status: 'kept', value: input.value };
+      globalThis.Components?.realClick(input);
+      const choice = Array.from(root.querySelectorAll('[lay-value], [role="option"]')).find((el) =>
+        (el.getAttribute('lay-value') === option.value || looseEqual(el.textContent, option.textContent)) && !el.matches('[aria-disabled="true"], .layui-disabled'));
+      if (!choice) return { status: 'need-manual', reason: '未找到原生下拉关联的可选项' };
+      globalThis.Components?.realClick(choice);
+      return backing.value === option.value && looseEqual(input.value, option.textContent.trim())
+        ? { status: 'filled', value: input.value } : { status: 'need-manual', reason: '学历展示值与实际提交值未同步' };
+    }
+    // 自动补全必须点中站点选项，由页面写入提交 ID，不能直接把学校名塞进隐藏 ID。
+    const previous = input.value;
+    const initial = input.getAttribute('value');
+    if (looseEqual(previous, value) && looseEqual(initial, value) && backing.value) return { status: 'kept', value: previous };
+    input.focus(); setNativeValue(input, String(value));
+    input.dispatchEvent(new KeyboardEvent('keyup', { key: 'Unidentified', bubbles: true }));
+    const deadline = Date.now() + 1500;
+    while (Date.now() < deadline) {
+      const choice = Array.from(root.querySelectorAll('[role="option"], li, [class*="resultli"]')).find((el) =>
+        globalThis.Scanner.isVisible(el) && Matcher.normalize(el.textContent) === Matcher.normalize(value));
+      if (choice) {
+        const previousId = backing.value;
+        const optionId = choice.getAttribute('data-id') || choice.getAttribute('data-value') || choice.getAttribute('value');
+        globalThis.Components?.realClick(choice);
+        await new Promise((resolve) => setTimeout(resolve, 80));
+        const committed = optionId && optionId !== 'undefined' ? String(backing.value) === optionId : backing.value !== previousId;
+        if (backing.value && committed && looseEqual(input.value, value)) return { status: 'filled', value: input.value };
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 80));
+    }
+    setNativeValue(input, previous);
+    return { status: 'need-manual', reason: '需要点选学校/专业自动补全选项，未确认提交 ID，已恢复显示值' };
   }
 
   /**
@@ -374,7 +473,7 @@
         if (m[2] === 'degree' && !/^(是否|最高|最近|当前)/.test(String(f.label || ''))) row.degreeCandidates.push(f);
       }
     };
-    (scanResult.fields || []).forEach(collect);
+    (scanResult.fields || []).filter((f) => f.recordIndex == null).forEach(collect);
     if (rows.size < 2) return;
 
     const norm = (s) => Matcher.normalize(s || '');
@@ -419,6 +518,7 @@
    * @returns {Promise<{report: object[], addedRows: number}>} 报告行均已脱敏
    */
   async function fill(scanResult, profile, opts = {}) {
+    bindEducationRecords(scanResult, profile);
     rebindEducationByDegree(scanResult, profile);
     const report = [];
     let addedRows = 0;
@@ -452,6 +552,11 @@
 
       // 2) 普通字段
       for (const f of scanResult.fields) {
+        if (f.bindingError) { report.push(reportEntry({ ...f, status: 'need-manual', reason: f.bindingError })); continue; }
+        if (f.linkedField) {
+          const value = resolveValue(profile, f.path);
+          report.push(await verifiedEntry(f, await fillLinkedField(f, value), value, opts)); continue;
+        }
         const fillType = plannedType(f);
         if (fillType === Matcher.T.CUSTOM_SELECT || fillType === Matcher.T.CUSTOM_PICKER) {
           // 自定义组件:点击面板交互填充
@@ -460,7 +565,7 @@
             continue;
           }
           if (fillType === Matcher.T.CUSTOM_SELECT) {
-            const value = resolveValue(profile, f.aiOperation ? f.path : alignedPath(f.path, f.trigger || f.el, profile));
+            const value = resolveValue(profile, f.aiOperation || f.recordIndex != null ? f.path : alignedPath(f.path, f.trigger || f.el, profile));
             if (value == null || value === '' || (Array.isArray(value) && value.length === 0)) {
               report.push(reportEntry({ ...f, status: 'no-value' }));
               continue;
@@ -469,10 +574,10 @@
             report.push(await verifiedEntry(f, res, value, opts));
           } else {
             const rawValues = (f.paths || [f.path])
-              .map((p) => resolveValue(profile, f.aiOperation ? p : alignedPath(p, f.trigger || f.el, profile)))
-              .filter((v) => v != null && v !== '');
+              .map((p) => resolveValue(profile, f.aiOperation || f.recordIndex != null ? p : alignedPath(p, f.trigger || f.el, profile)))
+              .map((v) => v ?? '');
             const requiresDay = f.valueType === Matcher.T.DATE && !['month', 'year'].includes(f.pickerPrecision);
-            if (requiresDay && rawValues.some((value) => !hasCompleteDate(value))) {
+            if (requiresDay && rawValues.some((value) => value && !hasCompleteDate(value))) {
               report.push(reportEntry({
                 ...f,
                 status: 'need-manual',
@@ -481,12 +586,17 @@
               continue;
             }
             const values = rawValues.map((v) => {
+              if (!v) return '';
               if (f.pickerPrecision === 'year') return String(v).match(/^\d{4}/)?.[0] || String(v);
               const precision = f.pickerPrecision || (f.valueType === Matcher.T.DATE ? 'date' : 'month');
               return coerceDate(v, null, precision);
             });
-            if (!values.length) {
+            if (!values.some(Boolean)) {
               report.push(reportEntry({ ...f, status: 'no-value' }));
+              continue;
+            }
+            if (values.length > 1 && values.some((v) => !v) && !(f.trigger || f.el).matches?.('.month-range-select')) {
+              report.push(reportEntry({ ...f, status: 'need-manual', reason: '起止日期不完整，不能将结束时间移入开始槽位' }));
               continue;
             }
             const res = await globalThis.Components.fillCustomPicker(f.trigger || f.el, values);
@@ -494,7 +604,7 @@
           }
           continue;
         }
-        const value = resolveValue(profile, f.aiOperation ? f.path : alignedPath(f.path, f.el, profile));
+        const value = resolveValue(profile, f.aiOperation || f.recordIndex != null ? f.path : alignedPath(f.path, f.el, profile));
         const res = fillElement(f.el, value, fillType);
         report.push(await verifiedEntry(f, res, value, opts));
       }
@@ -504,6 +614,7 @@
 
     if (!opts.rowsOnly || opts.includeGroups) {
       for (const g of scanResult.groups) {
+        if (g.bindingError) { report.push(reportEntry({ ...g, status: 'need-manual', reason: g.bindingError })); continue; }
         if (opts.skipGroups && g.els.some((el) => opts.skipGroups.has(el))) continue;
         report.push(reportEntry(fillGroup(g, profile)));
       }
@@ -513,8 +624,9 @@
     if (!opts.skipRows) {
       for (const row of scanResult.rows) {
         for (const item of row.items) {
-          const value = resolveValue(profile, item.aiOperation ? item.path : alignedPath(item.path, item.el, profile));
-          const res = fillElement(item.el, value, plannedType(item));
+          if (item.bindingError) { report.push(reportEntry({ ...item, status: 'need-manual', reason: item.bindingError })); continue; }
+          const value = resolveValue(profile, item.aiOperation || item.recordIndex != null ? item.path : alignedPath(item.path, item.el, profile));
+          const res = await fillLinkedField(item, value);
           report.push(await verifiedEntry(item, res, value, opts));
         }
       }
@@ -523,5 +635,5 @@
     return { report, addedRows };
   }
 
-  globalThis.Filler = { fill, resolveValue, setNativeValue, computeAge, fillElement };
+  globalThis.Filler = { fill, resolveValue, setNativeValue, computeAge, fillElement, bindEducationRecords };
 })();

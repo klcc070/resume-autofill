@@ -10,8 +10,76 @@
   const getMatcher = () => globalThis.Matcher;
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const PANEL_SELECTOR = '[class*="dropdown"], [class*="Dropdown"], [class*="calendar"], [class*="panel"], [class*="popup"], [class*="listbox"], [class*="options"], [class*="phoenix-popover"], [role="listbox"]';
+  const DISPLAY_SELECTOR = '[class*="display-value"], [class*="selected-value"], [class*="selection-item"], .selected-value';
 
-  /** 真实鼠标点击序列(部分组件只监听 mousedown/mouseup) */
+  function numericText(text) {
+    const match = String(text || '').trim().match(/^(\d{1,4})\s*(?:年|月)?$/);
+    return match ? Number(match[1]) : null;
+  }
+
+  function optionMatches(text, want) {
+    const number = numericText(want);
+    return number != null ? numericText(text) === number : getMatcher().normalize(text) === getMatcher().normalize(want);
+  }
+
+  /** 选中展示值优先于搜索输入，避免 SD Select 的空 input 遮蔽实际值。 */
+  function readSelectedValue(control) {
+    if (!control) return '';
+    if (control.matches?.('select')) return (control.selectedOptions[0]?.textContent || control.value || '').trim();
+    const display = control.querySelector?.(DISPLAY_SELECTOR);
+    if (display) return String(display.textContent || '').trim();
+    const input = control.matches?.('input, textarea') ? control : control.querySelector?.('input:not([type="checkbox"]):not([type="hidden"]), textarea');
+    return String(input?.value || '').trim();
+  }
+
+  function getDateSelects(root) {
+    return Array.from(root?.querySelectorAll('[class*="sd-Select-container-"]') || []).filter((el) =>
+      !el.parentElement?.closest('[class*="sd-Select-container-"]')
+    );
+  }
+
+  function readMonthRange(root) {
+    const controls = getDateSelects(root);
+    if (controls.length !== 2 && controls.length !== 4) return null;
+    const pairs = mokaPairSubSelects(controls).slice(0, controls.length / 2);
+    const values = pairs.map(([yi, mi]) => {
+      const year = numericText(readSelectedValue(controls[yi]));
+      const month = numericText(readSelectedValue(controls[mi]));
+      return year >= 1000 && year <= 9999 && month >= 1 && month <= 12
+        ? `${year}-${String(month).padStart(2, '0')}` : '';
+    });
+    if (values.length === 2 && root.querySelector('input[type="checkbox"]:checked, [role="checkbox"][aria-checked="true"]')) values[1] = '至今';
+    return values;
+  }
+
+  /** 公共读回接口：范围保留开始/结束槽位，不能过滤空值后把后项当作前项。 */
+  function readControlValues(target) {
+    if (!target) return [];
+    if (target.matches?.('.month-range-select')) return readMonthRange(target) || [];
+    if (target.matches?.('input, textarea, select')) return [readSelectedValue(target)];
+    const labels = Array.from(target.querySelectorAll('.atsx-date-picker-period-month-label, ' + DISPLAY_SELECTOR));
+    if (labels.length) return labels.map((node) => String(node.textContent || '').trim());
+    const inputs = Array.from(target.querySelectorAll('input:not([type="hidden"]):not([type="checkbox"]), textarea'));
+    if (inputs.length) return inputs.map((input) => input.value || '');
+    return [];
+  }
+
+  // React 替换节点后，通过所在年月控件及子项索引重新定位，避免继续点旧节点。
+  function controlResolver(control) {
+    const range = control.closest?.('.month-range-select');
+    const rangeIndex = range ? Array.from(document.querySelectorAll('.month-range-select')).indexOf(range) : -1;
+    const controlIndex = range ? getDateSelects(range).indexOf(control) : -1;
+    const id = control.id;
+    return () => {
+      if (control.isConnected) return control;
+      if (id && document.getElementById(id)) return document.getElementById(id);
+      const liveRange = range?.isConnected ? range : document.querySelectorAll('.month-range-select')[rangeIndex];
+      return liveRange && controlIndex >= 0 ? getDateSelects(liveRange)[controlIndex] : null;
+    };
+  }
+
+  /** 完整合成鼠标点击序列（非浏览器 trusted 事件；兼容 mousedown/mouseup 监听）。 */
   function realClick(el) {
     if (!el) return;
     const opts = { bubbles: true, cancelable: true, view: window };
@@ -29,49 +97,52 @@
     return r.width > 5 && r.height > 5;
   }
 
-  /** 等待浮层面板:优先返回包含目标选项的面板,避免多个 portal 串面板。 */
-  async function waitForPanel(beforeSet, timeoutMs = 2500, wants = null) {
-    const PANEL_CANDIDATES =
-      '[class*="dropdown"], [class*="Dropdown"], [class*="picker-dropdown"], [class*="calendar"], [class*="panel"], [class*="popup"], [class*="listbox"], [class*="options"], [class*="phoenix-popover"], [class*="phoenix-dropdown"], [role="listbox"]';
+  /** 等待当前触发器关联或本次新展开的浮层，不按全页面目标文本猜面板。 */
+  async function waitForPanel(beforeSet, timeoutMs = 2500, wants = null, trigger = null) {
+    const choose = (panels) => {
+      const related = new Set();
+      for (const node of [trigger, ...(trigger?.querySelectorAll?.('[aria-controls], [aria-owns]') || [])]) {
+        for (const attr of ['aria-controls', 'aria-owns']) {
+          for (const id of (node?.getAttribute?.(attr) || '').split(/\s+/).filter(Boolean)) {
+            const root = document.getElementById(id);
+            if (root && visible(root)) related.add(root);
+          }
+        }
+      }
+      const local = trigger?.closest?.('[class*="Dropdown-container"], [class*="dropdown-container"]');
+      const eligible = panels.filter((p) => related.has(p) || Array.from(related).some((root) => root.contains(p)) ||
+        (local && local.contains(p) && !p.contains(trigger)) || !beforeSet ||
+        (beforeSet instanceof Map ? !beforeSet.get(p) : !beforeSet.has(p)));
+      for (const root of related) if (!eligible.includes(root)) eligible.push(root);
+      if (!trigger) return eligible[0] || null;
+      const rect = trigger?.getBoundingClientRect();
+      return eligible.sort((a, b) => {
+        const linkedA = related.has(a), linkedB = related.has(b);
+        if (linkedA !== linkedB) return linkedA ? -1 : 1;
+        if (a.contains(b)) return 1;
+        if (b.contains(a)) return -1;
+        if (!rect) return 0;
+        const distance = (p) => { const r = p.getBoundingClientRect(); return Math.abs(r.left - rect.left) + Math.abs(r.top - rect.bottom); };
+        return distance(a) - distance(b);
+      })[0] || null;
+    };
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
-      const panels = Array.from(document.querySelectorAll(PANEL_CANDIDATES)).filter(
+      const panels = Array.from(document.querySelectorAll(PANEL_SELECTOR)).filter(
         (p) => visible(p) && (p.querySelector('[class*="option"], [role="option"], li, [class*="item"], [class*="cell"], [class*="month"], [class*="date"], td') || p.matches('[role="listbox"]'))
       );
-      // 部分组件会复用同一个 portal 节点,点击后只从 display:none 变为可见,
-      // 因此不能只判断节点是否新建。
-      const freshPanels = panels.filter((p) => {
-        if (!beforeSet) return true;
-        if (beforeSet instanceof Map) return !beforeSet.has(p) || !beforeSet.get(p);
-        return !beforeSet.has(p);
-      });
-      const wanted = Array.isArray(wants) ? wants.map(String) : wants == null ? [] : [String(wants)];
-      const matching = wanted.length
-        ? freshPanels.find((p) => panelOptions(p).some((option) => wanted.some((want) => getMatcher().optionScore(optionText(option), want) > 0)))
-        : null;
-      if (matching) return matching;
-      // 搜索型下拉可能先只挂载空面板(输入后才过滤出选项),此时仍返回新面板,让调用方进行搜索。
-      if (freshPanels.length) return freshPanels[0];
+      const panel = choose(panels);
+      if (panel) return panel;
       await sleep(80);
     }
-    // 超时后只允许回退到“新出现”的面板,绝不把调用前已存在的性别/学历面板当成当前面板。
-    const panels = Array.from(document.querySelectorAll(PANEL_CANDIDATES)).filter(visible);
-    const freshPanels = panels.filter((p) => {
-      if (!beforeSet) return true;
-      if (beforeSet instanceof Map) return !beforeSet.has(p) || !beforeSet.get(p);
-      return !beforeSet.has(p);
-    });
-    return freshPanels[0] || null;
+    return choose(Array.from(document.querySelectorAll(PANEL_SELECTOR)).filter(visible));
   }
 
   function snapshotPanels() {
     // 与 waitForPanel 使用同一套全局查询,包含直接挂在 body 上的 portal。
     // 旧实现只查 body 子节点的后代,会漏掉直接挂在 body 的旧性别面板,
     // 导致它被误判为本次新打开的日期面板。
-    const panels = Array.from(document.querySelectorAll(
-      '[class*="dropdown"], [class*="calendar"], [class*="panel"], [class*="popup"], ' +
-      '[class*="phoenix-popover"], [class*="phoenix-dropdown"], [role="listbox"]'
-    ));
+    const panels = Array.from(document.querySelectorAll(PANEL_SELECTOR));
     return new Map(panels.map((p) => [p, visible(p)]));
   }
 
@@ -109,7 +180,7 @@
         '[class~="ud__list__item"], [class~="ud__select__list__item"], [class*="list__item"], ' +
         '[class*="sd-Select-common-item"], [class*="Menu-content-item"], [class*="select-item"], [class*="menu-item"]'
       )
-    ).filter(visible);
+    ).filter((el) => visible(el) && !el.closest('[aria-disabled="true"], [disabled], [class*="item-disabled"], [class*="option-disabled"]'));
   }
 
   function optionText(el) {
@@ -176,12 +247,12 @@
 
   function findOption(options, want) {
     // 目标是纯数字(年份/月份):降序列表里包含匹配必然误选(2021→2121/2126),只认数值相等
-    const wantNum = /^\d{1,4}$/.test(String(want).trim()) ? String(Number(want)) : null;
+    const wantNum = numericText(want);
     let best = null;
     for (const opt of options) {
       const text = optionText(opt).trim();
       if (wantNum != null) {
-        if (/^\d{1,4}$/.test(text) && Number(text) === Number(want)) return { opt, score: 1000 };
+        if (numericText(text) === wantNum) return { opt, score: 1000 };
         continue;
       }
       const s = getMatcher().optionScore(text, want);
@@ -196,8 +267,10 @@
     const wn = norm(want);
     if (!wn) return null;
     const leaves = Array.from(panel.querySelectorAll('*')).filter(
-      (e) => e.children.length === 0 && visible(e) && norm(e.textContent)
+      (e) => e.children.length === 0 && visible(e) && norm(e.textContent) &&
+        !e.closest('[aria-disabled="true"], [disabled], [class*="item-disabled"], [class*="option-disabled"]')
     );
+    if (numericText(want) != null) return leaves.find((e) => numericText(e.textContent) === numericText(want)) || null;
     const exact = leaves.filter((e) => norm(e.textContent) === wn);
     const partial = leaves.filter((e) => norm(e.textContent).includes(wn));
     return exact[exact.length - 1] || partial[partial.length - 1] || null;
@@ -223,23 +296,22 @@
   async function fillCustomSelect(triggerEl, want, multi) {
     const before = snapshotPanels();
     const trigger = findTrigger(triggerEl);
+    const resolve = controlResolver(trigger);
     const wants = Array.isArray(want) ? want.map(String) : [String(want)];
+    if (!multi && wants.length === 1 && optionMatches(readSelectedValue(trigger), wants[0])) {
+      return { status: 'kept', value: readSelectedValue(trigger) };
+    }
     // Moka 等组件需先获得焦点再点按才会弹出面板
     try { if (trigger && trigger.focus) trigger.focus(); } catch {}
     realClick(trigger);
-    let panel = await waitForPanel(before, 2500, wants);
-    if (!panel) {
-      // 可能已展开:尝试全页面找可见面板
-      panel = Array.from(document.querySelectorAll('[role="listbox"], [class*="dropdown"], [class*="select__dropdown"]')).find(visible) || null;
-      if (!panel) return { status: 'need-manual', reason: '下拉面板未能展开' };
-    }
-    let options = panelOptions(panel);
-    let clicked = 0;
+    const panel = await waitForPanel(before, 2500, wants, trigger);
+    if (!panel) return { status: 'need-manual', reason: '未找到与当前控件关联的新下拉面板' };
     const clickedTexts = [];
     for (const w of wants) {
+      let options = panelOptions(panel);
       let best = findOption(options, w);
       // Ant Design 的可搜索 Select 在打开后先显示搜索框,选项会在输入后异步过滤。
-      if (!best) {
+      if (!best && numericText(w) == null) {
         const search = findSearchInput(trigger, panel);
         if (search) {
           setInputValue(search, w);
@@ -248,78 +320,47 @@
           best = findOption(options, w);
         }
       }
-      if (best) {
-        realClick(best.opt);
-        clicked += 1;
-        clickedTexts.push(optionText(best.opt).slice(0, 20));
-        await sleep(120);
-      }
-    }
-    // 兜底:不依赖类名,遍历面板可见叶子节点,文本与目标一致的直接点选。
-    // 长列表(虚拟滚动)兜底:逐屏滚动扫描目标文本,找到即点选
-    if (clicked === 0 && panel) {
-      const scrollable = Array.from(panel.querySelectorAll('[class*="scroll"], [class*="menu"], ul, [role="listbox"]')).find(
-        (s) => visible(s) && s.scrollHeight > s.clientHeight + 50
-      ) || panel;
-      for (let step = 0; step < 30 && clicked === 0; step++) {
-        const before2 = clicked;
-        for (const w of wants) {
-          const hit = findLeafOption(scrollable, w);
-          if (hit) { realClick(hit); clicked += 1; break; }
-        }
-        if (clicked > before2) break;
-        const prevTop = scrollable.scrollTop;
-        scrollable.scrollTop = prevTop + Math.max(240, scrollable.clientHeight * 0.75);
-        await sleep(70);
-        if (scrollable.scrollTop === prevTop) {
-          scrollable.scrollTop = Math.max(0, prevTop - Math.max(240, scrollable.clientHeight * 0.75));
-          await sleep(60);
-          for (const w of wants) {
-            const hit2 = findLeafOption(scrollable, w);
-            if (hit2) { realClick(hit2); clicked += 1; break; }
+      let hit = best?.opt || findLeafOption(panel, w);
+      if (!hit) {
+        // 找真正的滚动容器（可能是面板自身），对虚拟列表根据当前数值范围确定方向。
+        const ancestors = [];
+        for (let node = panel.parentElement; node && node !== document.body && !node.contains(trigger); node = node.parentElement) ancestors.push(node);
+        const scrollable = [panel, ...panel.querySelectorAll('*'), ...ancestors].filter((node) =>
+          visible(node) && node.scrollHeight > node.clientHeight + 20
+        ).sort((a, b) => (a.contains(b) ? 1 : b.contains(a) ? -1 : 0))[0];
+        const visited = new Set();
+        for (let step = 0; scrollable && step < 40 && !hit; step++) {
+          const numbers = panelOptions(panel).map((option) => numericText(optionText(option))).filter((n) => n != null);
+          let direction = 1;
+          if (numericText(w) != null && numbers.length >= 2) {
+            const descending = numbers[0] > numbers[numbers.length - 1];
+            if (numericText(w) > Math.max(...numbers)) direction = descending ? -1 : 1;
+            else if (numericText(w) < Math.min(...numbers)) direction = descending ? 1 : -1;
           }
-          break;
+          const previous = scrollable.scrollTop;
+          scrollable.scrollTop += direction * Math.max(100, scrollable.clientHeight * 0.8);
+          if (scrollable.scrollTop === previous) scrollable.scrollTop += -direction * Math.max(100, scrollable.clientHeight * 0.8);
+          const next = scrollable.scrollTop;
+          if (next === previous || visited.has(next)) break;
+          visited.add(next);
+          scrollable.dispatchEvent(new Event('scroll', { bubbles: true }));
+          await sleep(80);
+          options = panelOptions(panel);
+          hit = findOption(options, w)?.opt || findLeafOption(panel, w);
         }
       }
-    }
-
-    for (const w of wants) {
-      if (clickedTexts.some((t) => getMatcher().optionScore(t, w) > 0)) continue;
-      const hit = findLeafOption(panel, w);
-      if (hit) {
-        realClick(hit);
-        clicked += 1;
-        clickedTexts.push(optionText(hit).slice(0, 20));
-        await sleep(150);
+      if (!hit) {
+        const sample = panelOptions(panel).slice(0, 6).map(optionText).filter(Boolean).join('、');
+        return { status: 'need-manual', reason: `当前下拉中未找到目标“${w}”（示例：${sample || '无选项'}），未点击近似数字` };
       }
-    }
-    if (clicked === 0) {
-      // 兜底:面板变量可能抓错节点,对页面上所有可见下拉 portal 重试叶子点选
-      const portals = Array.from(
-        document.querySelectorAll('[class*="Dropdown-dropdown"], [class*="select__dropdown"], [class*="dropdown"], [role="listbox"]')
-      ).filter(visible);
-      for (const portal of portals) {
-        for (const w of wants) {
-          if (clickedTexts.some((t) => getMatcher().optionScore(t, w) > 0)) break;
-          const hit = findLeafOption(portal, w);
-          if (hit) {
-            realClick(hit);
-            clicked += 1;
-            clickedTexts.push(optionText(hit).slice(0, 20));
-            await sleep(150);
-          }
-        }
+      const chosenText = optionText(hit);
+      realClick(hit);
+      clickedTexts.push(chosenText);
+      await sleep(120);
+      if (numericText(w) != null) {
+        const actual = readSelectedValue(resolve());
+        if (!optionMatches(actual, w)) return { status: 'need-manual', reason: `目标 ${w} 未被控件接受；读回 ${actual || '空'}` };
       }
-    }
-    if (clicked === 0) {
-      // 未匹配到选项:面板保持打开,方便用户手动选择
-      const sample = options.slice(0, 6).map(optionText).filter(Boolean).join('、');
-      return {
-        status: 'need-manual',
-        reason: options.length
-          ? `已读取 ${options.length} 个选项但未匹配到目标“${wants.join('、')}”（示例：${sample}）,面板已保持打开,请手动点选`
-          : '面板已展开但未读取到可见选项,面板已保持打开,请手动点选',
-      };
     }
     if (!multi) closePanels();
     return { status: 'filled', value: clickedTexts.join('、') };
@@ -549,9 +590,8 @@
   function mokaPairSubSelects(unique) {
     const roles = unique.map((el) => {
       const inp = el.querySelector('input');
-      const disp = el.querySelector('[class*="display-value"]');
       const ph = (inp && inp.placeholder) || '';
-      const val = ((inp && inp.value) || (disp && disp.textContent) || '').trim();
+      const val = readSelectedValue(el);
       if (/年|year/i.test(ph)) return 'Y';
       if (/月|month/i.test(ph)) return 'M';
       if (/^\d{4}$/.test(val)) return 'Y';
@@ -565,6 +605,9 @@
     const yIdx = roles.map((r, i) => (r === 'Y' ? i : -1)).filter((i) => i >= 0);
     const mIdx = roles.map((r, i) => (r === 'M' ? i : -1)).filter((i) => i >= 0);
     // 默认布局 年月|年月(按 DOM 序两两一组);角色可辨且数量齐时,按坐标重组
+    if (roles.every((role, i) => role === '?' || role === (i % 2 ? 'M' : 'Y'))) {
+      return Array.from({ length: unique.length / 2 }, (_, i) => [i * 2, i * 2 + 1]);
+    }
     if (yIdx.length >= 2 && mIdx.length >= 2) {
       const ys = yIdx.slice(0, 2).sort((a, b) => xOf(a) - xOf(b));
       const restM = mIdx.slice();
@@ -577,35 +620,56 @@
     return [[0, 1], [2, 3]];
   }
 
+  function dateParts(root) {
+    const controls = getDateSelects(root);
+    if (![2, 4].includes(controls.length)) return [];
+    return mokaPairSubSelects(controls).slice(0, controls.length / 2).flatMap(([y, m], side) => [
+      { el: controls[y], kind: 'year', side }, { el: controls[m], kind: 'month', side },
+    ]);
+  }
+
+  async function selectDatePart(control, value, kind) {
+    const n = numericText(value);
+    if (!['year', 'month'].includes(kind) || n == null ||
+        (kind === 'year' ? n < 1000 || n > 9999 : n < 1 || n > 12)) {
+      return { status: 'need-manual', reason: '年月目标值无效' };
+    }
+    return fillCustomSelect(control, String(n), false);
+  }
+
   async function fillMokaMonthRange(trigger, values) {
-    const selects = Array.from(trigger.querySelectorAll('[class*="sd-Select-container-"]')).filter((el) => {
-      const cls = String(el.className || '');
-      return /(^|\s)sd-Select-container-[^\s]+(?:\s|$)/.test(cls) && !el.parentElement?.closest('[class*="sd-Select-container-"]');
-    });
-    const unique = Array.from(new Set(selects));
-    if (unique.length < 2) return { status: 'need-manual', reason: '月份下拉结构不完整' };
-    const pairs = mokaPairSubSelects(unique);
-    const filled = [];
+    const index = Array.from(document.querySelectorAll('.month-range-select')).indexOf(trigger);
+    const resolve = () => trigger.isConnected ? trigger : document.querySelectorAll('.month-range-select')[index];
+    if (!dateParts(trigger).length) return { status: 'need-manual', reason: '月份下拉结构不完整' };
+    const wants = [];
     for (let i = 0; i < Math.min(values.length, 2); i++) {
       const value = String(values[i] || '');
+      if (!value) { wants.push(''); continue; }
       if (i === 1 && /至今|present|current/i.test(value)) {
-        const checkbox = trigger.querySelector('input[type="checkbox"]');
+        const checkbox = resolve()?.querySelector('input[type="checkbox"]');
         if (checkbox && !checkbox.checked) realClick(checkbox);
-        filled.push('至今');
+        if (readMonthRange(resolve())?.[1] !== '至今') return { status: 'need-manual', reason: '至今未被控件接受' };
+        wants.push('至今');
         continue;
       }
-      const match = value.match(/^(\d{4})-(\d{1,2})/);
-      if (!match) continue;
-      const yearTrigger = unique[pairs[i][0]];
-      const monthTrigger = unique[pairs[i][1]];
-      if (!yearTrigger || !monthTrigger) return { status: 'need-manual', reason: '开始/结束年月下拉数量不足' };
-      const yearResult = await fillCustomSelect(yearTrigger, match[1], false);
-      if (yearResult.status !== 'filled' && yearResult.status !== 'kept') return yearResult;
-      const monthResult = await fillCustomSelect(monthTrigger, String(Number(match[2])), false);
-      if (monthResult.status !== 'filled' && monthResult.status !== 'kept') return monthResult;
-      filled.push(`${match[1]}-${match[2].padStart(2, '0')}`);
+      const match = value.match(/^(\d{4})-(\d{1,2})(?:-\d{1,2})?$/);
+      if (!match || +match[2] < 1 || +match[2] > 12) return { status: 'need-manual', reason: '日期格式无效' };
+      if (i === 1) {
+        const checkbox = resolve()?.querySelector('input[type="checkbox"]');
+        if (checkbox?.checked) realClick(checkbox);
+      }
+      for (const [kind, partValue] of [['year', match[1]], ['month', match[2]]]) {
+        const part = dateParts(resolve()).find((p) => p.side === i && p.kind === kind);
+        if (!part) return { status: 'need-manual', reason: '开始/结束年月下拉数量不足' };
+        const result = await selectDatePart(part.el, partValue, kind);
+        if (!['filled', 'kept'].includes(result.status)) return result;
+      }
+      wants.push(`${match[1]}-${match[2].padStart(2, '0')}`);
     }
-    return filled.length ? { status: 'filled', value: filled.join(' ~ ') } : { status: 'no-value' };
+    const actual = readMonthRange(resolve()) || [];
+    if (!wants.some(Boolean)) return { status: 'no-value' };
+    if (!wants.every((want, i) => !want || actual[i] === want)) return { status: 'need-manual', reason: `年月读回不一致：${actual.join(' ~ ')}` };
+    return { status: 'filled', value: actual.join(' ~ ') };
   }
 
   /**
@@ -649,5 +713,6 @@
     return { status: 'filled', value: results.join(' ~ ') };
   }
 
-  globalThis.Components = { fillCustomSelect, fillCustomPicker, waitForPanel, closePanels };
+  globalThis.Components = { fillCustomSelect, fillCustomPicker, waitForPanel, closePanels,
+    readSelectedValue, readControlValues, readMonthRange, dateParts, selectDatePart, realClick };
 })();

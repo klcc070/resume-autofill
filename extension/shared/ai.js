@@ -222,6 +222,13 @@
         if (!match || match[1] !== tableArrayName(target.array)) return null;
         if (!Array.isArray(profile?.[match[1]]) || !profile[match[1]][Number(match[2])]) return null;
       }
+      if (match && Number.isInteger(target.recordIndex) && Number(match[2]) !== target.recordIndex) return null;
+      const leafAliases = { start: 'startDate', end: 'endDate', startdate: 'startDate', enddate: 'endDate' };
+      const semanticLeaf = leafAliases[String(target.semanticName || '').toLowerCase()] || target.semanticName;
+      if (match?.[1] === 'education' && ['school', 'degree', 'major', 'college', 'startDate', 'endDate', 'fullTime'].includes(semanticLeaf) &&
+          match[3] !== semanticLeaf) return null;
+      // 教育卡片未被识别时不能把它降级成独立字段，绕过整行一致性校验。
+      if (!target.tableId && target.section === 'education' && match?.[1] === 'education') return null;
       return { targetId, profilePath: path, operation, confidence: action.confidence,
         tableId: target.tableId, rowIndex: target.rowIndex, recordIndex: match ? Number(match[2]) : null };
     }).filter(Boolean);
@@ -253,7 +260,8 @@
     '你是网页表单操作诊断器。给定目标字段、期望值、局部 HTML、可操作节点和历史动作，选择下一步唯一动作。' +
     '只操作目标字段或其弹出面板，不能提交、删除、跳转或执行任意代码。若值已正确返回 done；无法判断返回 manual。' +
     '日期选择可以逐步打开面板、选年、选月、确认，每一步后会收到新页面状态。' +
-    '只输出 JSON 对象，例如 {"type":"click","nodeId":"n2"}；允许 type 为 click、type、scroll、key、done、manual。' +
+    '若 observation.tools 提供 select-year/select-month，年月必须使用这些工具，不要点数字选项或输入搜索框。工具负责面板关联、滚动和精确读回。side=0 开始，side=1 结束；value 必须是 desired 对应年月。' +
+    '只输出 JSON 对象，例如 {"type":"select-year","nodeId":"n2","value":"2026"}；允许 type 为 select-year、select-month、click、type、scroll、key、done、manual。' +
     'type 动作还需 value；scroll 动作还需 direction(up/down)；key 仅允许 Enter、Escape、Tab。';
 
   /** 只让模型选受约束的 UI 动作；目标节点必须来自本轮观察。 */
@@ -274,8 +282,21 @@
     const raw = String(data?.choices?.[0]?.message?.content || '').replace(/```json|```/gi, '').trim();
     const action = JSON.parse(raw);
     const type = String(action?.type || '');
-    if (!['click', 'type', 'scroll', 'key', 'done', 'manual'].includes(type)) throw new Error('AI 返回了不允许的动作');
-    if (['click', 'type', 'scroll', 'key'].includes(type) && !observation.nodes.has(String(action.nodeId))) throw new Error('AI 选择了不存在的节点');
+    if (!['select-year', 'select-month', 'click', 'type', 'scroll', 'key', 'done', 'manual'].includes(type)) throw new Error('AI 返回了不允许的动作');
+    if (['select-year', 'select-month', 'click', 'type', 'scroll', 'key'].includes(type) && !observation.nodes.has(String(action.nodeId))) throw new Error('AI 选择了不存在的节点');
+    const node = observation.page.nodes?.find((n) => n.id === String(action.nodeId));
+    if (observation.page.tools?.length && ['click', 'type'].includes(type) &&
+        (node?.datePart || (type === 'click' && /^\d{1,4}\s*(?:年|月)?$/.test(String(node?.text || '').trim())))) {
+      throw new Error('AI 年月操作必须使用选年/选月工具');
+    }
+    if (type.startsWith('select-')) {
+      const tool = observation.page.tools?.find((t) => t.type === type && t.nodeId === String(action.nodeId));
+      const wanted = (Array.isArray(desired) ? desired : [desired])[tool?.side];
+      const match = String(wanted || '').match(/^(\d{4})-(\d{1,2})(?:-\d{1,2})?$/);
+      if (!tool || !match || !/^\d+$/.test(String(action.value)) || Number(action.value) !== Number(match[type === 'select-year' ? 1 : 2])) {
+        throw new Error('AI 年月工具或目标值无效');
+      }
+    }
     if (type === 'type' && typeof action.value !== 'string') throw new Error('AI 输入值无效');
     if (type === 'scroll' && !['up', 'down'].includes(action.direction)) throw new Error('AI 滚动方向无效');
     if (type === 'key' && !['Enter', 'Escape', 'Tab'].includes(action.key)) throw new Error('AI 按键无效');

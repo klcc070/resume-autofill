@@ -15,7 +15,7 @@
     return box.width > 0 && box.height > 0;
   };
   const dateKey = (value) => {
-    const match = String(value || '').match(/(20\d{2}|19\d{2})\D*(\d{1,2})(?:\D+(\d{1,2}))?/);
+    const match = String(value || '').trim().match(/^(\d{4})[-/.年](\d{1,2})(?:[-/.月](\d{1,2}))?[月日]?$/);
     if (!match) return null;
     return `${match[1]}-${match[2].padStart(2, '0')}${match[3] ? '-' + match[3].padStart(2, '0') : ''}`;
   };
@@ -31,9 +31,15 @@
 
   function resolveTarget(source) {
     let target = source?.trigger || source?.el;
-    if (target?.isConnected) return target;
+    if (target?.isConnected) {
+      if (target.matches('.month-range-select')) source.__dateRangeIndex = Array.from(document.querySelectorAll('.month-range-select')).indexOf(target);
+      return target;
+    }
     if (!target) return null;
     let replacement = target.id ? document.getElementById(target.id) : null;
+    if (!replacement && target.matches?.('.month-range-select') && source.__dateRangeIndex >= 0) {
+      replacement = document.querySelectorAll('.month-range-select')[source.__dateRangeIndex];
+    }
     if (!replacement) {
       const cyRoot = target.closest?.('[data-cy]');
       const cy = cyRoot?.getAttribute('data-cy');
@@ -64,6 +70,11 @@
     const target = resolveTarget(source);
     if (!target?.isConnected) return [];
     const root = fieldRoot(source);
+    if (globalThis.Components?.readControlValues) {
+      const scope = target.matches('input, textarea') && !target.value ? root : target;
+      const values = globalThis.Components.readControlValues(scope);
+      if (values.length) return values;
+    }
     if (target.matches?.('select')) return [target.selectedOptions?.[0]?.textContent?.trim() || target.value];
     if (target.matches?.('input, textarea') && target.value) return [target.value];
     const labels = Array.from(root.querySelectorAll('.atsx-date-picker-period-month-label, [class*="range-picker-input"], [class*="selected-value"], [class*="selection-item"]'))
@@ -82,7 +93,7 @@
     if (slot != null && wants.length === 1 && values.length >= 2) {
       return { state: sameValue(values[slot], wants[0]) ? 'verified' : 'mismatch', current: values };
     }
-    if (values.length >= wants.length && wants.every((want, i) => sameValue(values[i], want))) {
+    if (values.length >= wants.length && wants.every((want, i) => !want || sameValue(values[i], want))) {
       return { state: 'verified', current: values };
     }
     return { state: values.some(Boolean) ? 'mismatch' : 'unknown', current: values };
@@ -124,17 +135,21 @@
     const seen = new Set();
     const listed = [];
     const selector = 'input, select, textarea, button, [role="option"], [role="button"], [role="gridcell"], [role="combobox"], [role="radio"], [tabindex], li, [class*="cell"], [class*="year"], [class*="month"]';
+    const parts = globalThis.Components?.dateParts(target) || [];
     const add = (el) => {
       if (nodes.size >= 140 || !visible(el) || seen.has(el)) return;
       const id = `n${nodes.size + 1}`;
       seen.add(el);
       nodes.set(id, el);
+      const part = parts.find((p) => p.el === el || p.el.contains(el));
       listed.push({ id, tag: el.tagName.toLowerCase(), role: el.getAttribute('role') || undefined,
+        datePart: part?.kind, dateSide: part?.side,
         text: compact(el.textContent, 80) || undefined, value: 'value' in el ? compact(el.value, 100) : undefined,
         aria: el.getAttribute('aria-label') || undefined, title: el.getAttribute('title') || undefined,
         className: compact(el.className, 80) || undefined });
     };
     add(target);
+    for (const part of parts) add(part.el);
     for (const scope of [root, ...panels]) {
       if (!scope) continue;
       add(scope);
@@ -148,17 +163,44 @@
         html: compact(root.outerHTML, 1800),
         panels: panels.map((el) => compact(el.outerHTML, 3500)),
         nodes: listed,
+        tools: listed.filter((n) => parts.some((p) => p.el === nodes.get(n.id))).map((n) => ({
+          type: `select-${n.datePart}`, nodeId: n.id, side: n.dateSide,
+        })),
       },
     };
   }
 
-  function execute(action, observation) {
+  async function execute(action, observation) {
     if (action.type === 'done' || action.type === 'manual') return;
     const el = observation.nodes.get(action.nodeId);
     if (!el?.isConnected) throw new Error('操作节点已失效');
     const text = compact(`${el.textContent || ''} ${el.getAttribute('aria-label') || ''}`, 80);
     if (/提交|删除|移除|保存并提交|submit|delete|remove/i.test(text)) throw new Error('禁止操作提交或删除按钮');
-    if (action.type === 'click') { el.click(); return; }
+    const descriptor = observation.page.nodes?.find((n) => n.id === action.nodeId);
+    if (observation.page.tools?.length && ['click', 'type'].includes(action.type) &&
+        (descriptor?.datePart || (action.type === 'click' && /^\d{1,4}\s*(?:年|月)?$/.test(text)))) {
+      throw new Error('年月必须使用选年/选月工具，不能绕过精确核验');
+    }
+    if (['select-year', 'select-month'].includes(action.type)) {
+      const tool = observation.page.tools?.find((t) => t.type === action.type && t.nodeId === action.nodeId);
+      if (!tool) throw new Error('该节点不是对应年月控件');
+      const wanted = (Array.isArray(observation.page.desired) ? observation.page.desired : [observation.page.desired])[tool.side];
+      const match = String(wanted || '').match(/^(\d{4})-(\d{1,2})(?:-\d{1,2})?$/);
+      const expected = match && Number(match[action.type === 'select-year' ? 1 : 2]);
+      if (expected == null || Number(action.value) !== expected) throw new Error('年月操作与档案目标不一致');
+      const result = await globalThis.Components.selectDatePart(el, action.value, action.type.slice(7));
+      if (!['filled', 'kept'].includes(result.status)) throw new Error(result.reason || '年月选择未通过核验');
+      return;
+    }
+    if (action.type === 'click') {
+      if (globalThis.Components?.realClick) globalThis.Components.realClick(el);
+      else {
+        el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+        el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+        el.click();
+      }
+      return;
+    }
     if (action.type === 'type') {
       if (!el.matches('input, textarea, select')) throw new Error('该节点不可输入');
       globalThis.Filler.setNativeValue(el, action.value);
@@ -184,7 +226,8 @@
       const observation = observe(source, desired);
       const action = await globalThis.AIMapping.nextAction(observation, desired, trace, config);
       if (action.type === 'manual' || action.type === 'done') break;
-      execute(action, observation);
+      try { await execute(action, observation); }
+      catch (error) { return { status: 'need-manual', reason: error.message, trace }; }
       await pause(160);
       trace.push({ action, current: selectedValues(source) });
     }
