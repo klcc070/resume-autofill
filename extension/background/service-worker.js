@@ -61,7 +61,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const { aiConfig } = await chrome.storage.local.get('aiConfig');
         if (!aiConfig?.apiKey || !aiConfig?.endpoint) throw new Error('AI 未配置');
         const url = new URL(aiConfig.endpoint);
-        if (url.protocol !== 'https:') throw new Error('AI 接口必须使用 HTTPS');
+        // 本机回环(本地代理)允许 HTTP,其余强制 HTTPS
+        const loopback = ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname);
+        if (url.protocol !== 'https:' && !loopback) throw new Error('AI 接口必须使用 HTTPS(本机代理可用 http://127.0.0.1)');
         const payload = msg.payload;
         const encoded = JSON.stringify(payload);
         if (!payload || !Array.isArray(payload.messages) || encoded.length > 280000) throw new Error('AI 请求内容无效或过大');
