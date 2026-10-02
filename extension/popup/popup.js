@@ -248,6 +248,66 @@ async function clearAiSettings() {
   loadAiSettings();
 }
 
+
+// —— AI 连接测试:按当前表单配置发一次最小真实调用 ——
+async function testAiConnection() {
+  const status = $('ai-status');
+  const btn = $('btn-ai-test');
+  const provider = $('ai-provider').value || 'glm';
+  const preset = AI_PROVIDERS[provider] || AI_PROVIDERS.custom;
+  const endpoint = ($('ai-endpoint').value || preset.endpoint).trim();
+  const model = ($('ai-model').value || preset.model).trim();
+  let key = $('ai-key').value.trim();
+  // 输入框可能是保存后的占位符或空,回退到已保存配置
+  if (!key || /^•/.test(key)) {
+    try { key = ((await chrome.storage.local.get('aiConfig')).aiConfig || {}).apiKey || ''; } catch {}
+  }
+  if (!endpoint || !model) { setStatus('ai-status', '请先填写 API 地址和模型名', true); return; }
+  // 确保该地址的访问权限(点击即用户手势)
+  try {
+    const origin = new URL(endpoint).origin + '/*';
+    const has = await chrome.permissions.contains({ origins: [origin] });
+    if (!has) {
+      const ok = await chrome.permissions.request({ origins: [origin] });
+      if (!ok) { setStatus('ai-status', '未授予 ' + origin + ' 的访问权限,无法测试', true); return; }
+    }
+  } catch (e) { /* contains 在部分环境不可用时继续尝试 */ }
+  btn.disabled = true;
+  btn.textContent = '调用中…';
+  status.classList.remove('err');
+  status.textContent = '测试中:' + model + ' @ ' + new URL(endpoint).host + ' …';
+  const t0 = Date.now();
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), 60000);
+  try {
+    const r = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (key || 'local') },
+      body: JSON.stringify({ model, max_tokens: 2048, messages: [{ role: 'user', content: '回复两个字:成功' }] }),
+      signal: ac.signal,
+    });
+    clearTimeout(timer);
+    const ms = Date.now() - t0;
+    const text = await r.text();
+    let j = {};
+    try { j = JSON.parse(text); } catch {}
+    if (!r.ok) {
+      setStatus('ai-status', '✘ HTTP ' + r.status + '(' + ms + 'ms):' + (j.error && j.error.message || text).slice(0, 120), true);
+    } else {
+      const content = (j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || '';
+      const usage = j.usage ? '(' + (j.usage.total_tokens || '?') + ' tokens)' : '';
+      setStatus('ai-status', '✔ 连接成功(' + ms + 'ms)' + usage + ' 回复:' + String(content).slice(0, 40));
+    }
+  } catch (e) {
+    clearTimeout(timer);
+    const ms = Date.now() - t0;
+    setStatus('ai-status', '✘ ' + (e.name === 'AbortError' ? '超时(60s)' : e.message) + '(' + ms + 'ms)', true);
+  }
+  btn.disabled = false;
+  btn.textContent = '测试连接';
+}
+
+$('btn-ai-test').addEventListener('click', testAiConnection);
 $('btn-ai-save').addEventListener('click', saveAiSettings);
 $('btn-ai-clear').addEventListener('click', clearAiSettings);
 $('ai-provider').addEventListener('change', (ev) => applyAiProvider(ev.target.value, true));
