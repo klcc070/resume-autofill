@@ -80,6 +80,9 @@
       { path: 'internships[{i}].startDate', synonyms: ['开始时间', '起止时间', '入职时间', '起始时间', '从', 'startdate'], type: T.MONTH },
       { path: 'internships[{i}].endDate', synonyms: ['结束时间', '离职时间', '截止时间', '至', 'enddate'], type: T.MONTH },
       { path: 'internships[{i}].description', synonyms: ['工作内容', '实习内容', '工作描述', '实习描述', '职责描述', '内容描述', '工作职责', 'description'], type: T.TEXTAREA },
+      { path: 'internships[{i}].refereeName', synonyms: ['证明人姓名', '证明人', '推荐人姓名', '推荐人', 'referee'], type: T.TEXT },
+      { path: 'internships[{i}].refereeTitle', synonyms: ['证明人职务', '证明人职位', '证明人岗位', '推荐人职务'], type: T.TEXT },
+      { path: 'internships[{i}].refereeContact', synonyms: ['证明人联系方式', '证明人联系电话', '证明人电话', '证明人邮箱', '推荐人联系方式'], type: T.TEXT },
     ],
     employment: [
       { path: 'employment[{i}].company', synonyms: ['公司', '单位', '公司名称', '企业', '工作单位', '任职公司', '雇主', 'company', 'employer'], type: T.TEXT },
@@ -88,6 +91,9 @@
       { path: 'employment[{i}].startDate', synonyms: ['开始时间', '起止时间', '入职时间', '起始时间', '从', 'startdate'], type: T.MONTH },
       { path: 'employment[{i}].endDate', synonyms: ['结束时间', '离职时间', '截止时间', '至', 'enddate'], type: T.MONTH },
       { path: 'employment[{i}].description', synonyms: ['工作内容', '工作描述', '职责描述', '内容描述', '工作职责', 'description'], type: T.TEXTAREA },
+      { path: 'employment[{i}].refereeName', synonyms: ['证明人姓名', '证明人', '推荐人姓名', '推荐人', 'referee'], type: T.TEXT },
+      { path: 'employment[{i}].refereeTitle', synonyms: ['证明人职务', '证明人职位', '证明人岗位', '推荐人职务'], type: T.TEXT },
+      { path: 'employment[{i}].refereeContact', synonyms: ['证明人联系方式', '证明人联系电话', '证明人电话', '证明人邮箱', '推荐人联系方式'], type: T.TEXT },
     ],
     project: [
       { path: 'projects[{i}].name', synonyms: ['项目名称', '项目名', '项目', '作品名称', '实践名称', 'projectname'], type: T.TEXT },
